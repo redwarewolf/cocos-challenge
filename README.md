@@ -163,6 +163,13 @@ alcance de este challenge (montos en pesos con 2 decimales) no se justificó la 
 luego el resto (contiene en ticker o nombre), para que buscar `"ggal"` devuelva primero el ticker
 exacto antes que coincidencias parciales en nombres.
 
+**Response DTOs**: `OrderResponseDto`, `InstrumentResponseDto`, `PortfolioResponseDto` (en cada
+módulo, carpeta `dto/`) documentan con `@ApiProperty` la forma real de cada respuesta para que
+Swagger genere un schema útil — antes los controllers devolvían entidades TypeORM/interfaces sin
+decorar y `/docs` no podía mostrar más que la `description` en texto libre. No agregan una capa de
+mapeo: los services siguen devolviendo la entidad/interface tal cual (estructuralmente idéntica al
+DTO), así que no hay riesgo de que la respuesta real y lo documentado en Swagger diverjan.
+
 ## Testing
 
 ```bash

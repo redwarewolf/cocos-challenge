@@ -7,9 +7,9 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Order } from '../database/entities/order.entity';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { OrderResponseDto } from './dto/order-response.dto';
 import { OrdersService } from './orders.service';
 
 @ApiTags('orders')
@@ -22,13 +22,14 @@ export class OrdersController {
   @ApiResponse({
     status: 201,
     description: 'Orden creada (FILLED, NEW o REJECTED según corresponda)',
+    type: OrderResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Input inválido' })
   @ApiResponse({
     status: 404,
     description: 'Usuario o instrumento inexistente',
   })
-  create(@Body() dto: CreateOrderDto): Promise<Order> {
+  create(@Body() dto: CreateOrderDto): Promise<OrderResponseDto> {
     return this.ordersService.create(dto);
   }
 
@@ -40,20 +41,27 @@ export class OrdersController {
   @ApiResponse({
     status: 201,
     description: 'Movimiento creado (FILLED o REJECTED)',
+    type: OrderResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Input inválido' })
   @ApiResponse({ status: 404, description: 'Usuario inexistente' })
-  createCashMovement(@Body() dto: CreateCashMovementDto): Promise<Order> {
+  createCashMovement(
+    @Body() dto: CreateCashMovementDto,
+  ): Promise<OrderResponseDto> {
     return this.ordersService.createCashMovement(dto);
   }
 
   @Patch(':id/cancel')
   @ApiOperation({ summary: 'Cancela una orden en estado NEW' })
   @ApiParam({ name: 'id', example: 1 })
-  @ApiResponse({ status: 200, description: 'Orden cancelada' })
+  @ApiResponse({
+    status: 200,
+    description: 'Orden cancelada',
+    type: OrderResponseDto,
+  })
   @ApiResponse({ status: 400, description: 'La orden no está en estado NEW' })
   @ApiResponse({ status: 404, description: 'Orden inexistente' })
-  cancel(@Param('id', ParseIntPipe) id: number): Promise<Order> {
+  cancel(@Param('id', ParseIntPipe) id: number): Promise<OrderResponseDto> {
     return this.ordersService.cancel(id);
   }
 }
