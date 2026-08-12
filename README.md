@@ -83,6 +83,13 @@ Ver `rest-client/requests.http` para una colección completa de ejemplos ejecuta
 
 ## Decisiones de diseño y asunciones
 
+**Validación de `DATABASE_URL` al arrancar**: si falta o no es una connection string de Postgres
+válida, `assertValidDatabaseUrl` (`src/database/assert-valid-database-url.ts`) hace fallar el
+bootstrap con un mensaje explícito, en vez del stack trace genérico de conexión que tira el driver
+de Postgres. Se valida en `data-source.ts` (no solo en `main.ts`) porque ese archivo también lo usa
+el CLI de migraciones. Es una función chica sin dependencias nuevas (no se justificó traer una
+librería de validación de schemas para una sola variable).
+
 **Esquema de base de datos**: se mantiene tal cual (no se modificó ninguna tabla ni columna). El
 único cambio aplicado es una migración aditiva de TypeORM (`src/database/migrations`) que agrega
 3 índices no destructivos para acelerar las queries de disponible/posiciones/último precio, que se
@@ -164,7 +171,7 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 49 tests): uno por servicio (`OrdersService`, `ValuationService`,
+**Unit tests** (`src/**/*.spec.ts`, 55 tests): uno por servicio (`OrdersService`, `ValuationService`,
 `PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
 repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
 compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
@@ -208,6 +215,7 @@ src/
     entities/      # User, Instrument, Order, MarketData — mapeadas 1:1 a las columnas reales
     migrations/     # índices aditivos
     data-source.ts  # DataSource compartido (Nest + CLI de migraciones)
+    assert-valid-database-url.ts  # falla rápido con mensaje claro si DATABASE_URL es inválida + .spec
   valuation/        # ValuationService: cash disponible + posiciones (compartido) + .spec
   portfolio/        # GET /portfolio/:userId + .spec
   instruments/      # GET /instruments/search + .spec

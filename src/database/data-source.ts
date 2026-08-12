@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { DataSource, DataSourceOptions } from 'typeorm';
+import { assertValidDatabaseUrl } from './assert-valid-database-url';
 import { Instrument } from './entities/instrument.entity';
 import { MarketData } from './entities/market-data.entity';
 import { Order } from './entities/order.entity';
@@ -12,6 +13,8 @@ import { User } from './entities/user.entity';
  * el TestingModule, y la app arranca contra esa base en vez de la real.
  */
 export function buildDataSourceOptions(): DataSourceOptions {
+  assertValidDatabaseUrl(process.env.DATABASE_URL);
+
   return {
     type: 'postgres',
     url: process.env.DATABASE_URL,
