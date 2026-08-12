@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
@@ -25,12 +26,45 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         transform: true,
       }),
     );
+    // mismo setup que main.ts — createNestApplication() no corre bootstrap(), así que
+    // hay que registrar Swagger acá también para poder testear /docs-json.
+    const swaggerDocument = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder().build(),
+    );
+    SwaggerModule.setup('docs', app, swaggerDocument);
     await app.init();
   });
 
   afterAll(async () => {
     await app.close();
     await stopTestDatabase();
+  });
+
+  describe('GET /health', () => {
+    it('devuelve 200 y status ok con la DB real de Testcontainers arriba', async () => {
+      const res = await request(app.getHttpServer()).get('/health');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        status: 'ok',
+        info: { database: { status: 'up' } },
+      });
+    });
+  });
+
+  describe('GET /docs-json', () => {
+    it('expone el documento OpenAPI con los paths esperados', async () => {
+      const res = await request(app.getHttpServer()).get('/docs-json');
+
+      expect(res.status).toBe(200);
+      expect(res.body.paths).toHaveProperty('/orders');
+      expect(res.body.paths).toHaveProperty('/orders/cash');
+      expect(res.body.paths).toHaveProperty('/orders/{id}/cancel');
+      expect(res.body.paths).toHaveProperty('/portfolio/{userId}');
+      expect(res.body.paths).toHaveProperty('/instruments/search');
+      expect(res.body.paths).toHaveProperty('/health');
+    });
   });
 
   describe('GET /instruments/search', () => {

@@ -21,9 +21,16 @@ cp .env.example .env   # completar DATABASE_URL con la connection string real
 npm run start:dev
 ```
 
-La API queda escuchando en `http://localhost:3000` (configurable con `PORT`).
+La API queda escuchando en `http://localhost:3000` (configurable con `PORT`). Documentación
+interactiva (Swagger UI) en `http://localhost:3000/docs`, JSON crudo (OpenAPI) en `/docs-json`.
 
 ## Endpoints
+
+### `GET /health`
+
+Healthcheck de *readiness*, no solo liveness: pinguea la conexión real a la DB (`@nestjs/terminus` +
+`TypeOrmHealthIndicator`), que es la única dependencia externa de esta API. `200` si la DB responde,
+`503` si no.
 
 ### `GET /portfolio/:userId`
 
@@ -164,7 +171,7 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 49 tests): uno por servicio (`OrdersService`, `ValuationService`,
+**Unit tests** (`src/**/*.spec.ts`, 50 tests): uno por servicio (`OrdersService`, `ValuationService`,
 `PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
 repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
 compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
@@ -179,11 +186,11 @@ archivos declarativos (decorators de Nest/TypeORM/class-validator, wiring de DI,
 sin ramas ni cómputo que un unit test pueda ejercitar de forma significativa — están cubiertos igual,
 pero por los e2e (que sí bootean la app entera) o, en el caso de la migración, por haberla corrido
 contra la DB real. Con esa exclusión, `npm run test:cov` reporta cobertura solo de `services` y
-`controllers` (la lógica real): ~98.7% statements / ~82.7% branches / 100% functions / ~98.6% lines,
+`controllers` (la lógica real): ~98.9% statements / ~82% branches / 100% functions / ~98.7% lines,
 con un `coverageThreshold` en `package.json` un poco por debajo de eso para detectar regresiones sin
 ser un número arbitrario.
 
-**E2E tests** (`test/app.e2e-spec.ts`, 32 tests): levantan un Postgres real y descartable con
+**E2E tests** (`test/app.e2e-spec.ts`, 34 tests): levantan un Postgres real y descartable con
 [Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts` +
 `test/setup/schema.sql`, mismo esquema que `database.sql` con un seed propio y determinístico), y
 corren la app de punta a punta (HTTP → controller → service → DB) contra los 4 endpoints, incluyendo
@@ -212,6 +219,7 @@ src/
   portfolio/        # GET /portfolio/:userId + .spec
   instruments/      # GET /instruments/search + .spec
   orders/           # POST /orders, POST /orders/cash, PATCH /orders/:id/cancel + .spec
+  health/           # GET /health (readiness: pinguea la DB) + .spec
 test/
   app.e2e-spec.ts   # e2e de los 4 endpoints contra Postgres real (Testcontainers)
   setup/            # helper que levanta/destruye el container + schema.sql (esquema + seed de test)
