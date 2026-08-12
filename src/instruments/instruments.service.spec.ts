@@ -17,8 +17,9 @@ describe('InstrumentsService', () => {
     setParameter: jest.fn(),
     orderBy: jest.fn(),
     addOrderBy: jest.fn(),
+    skip: jest.fn(),
     take: jest.fn(),
-    getMany: jest.fn(),
+    getManyAndCount: jest.fn(),
   };
   const instrumentRepository = {
     createQueryBuilder: jest.fn(() => queryBuilder),
@@ -31,8 +32,9 @@ describe('InstrumentsService', () => {
     queryBuilder.setParameter.mockReturnValue(queryBuilder);
     queryBuilder.orderBy.mockReturnValue(queryBuilder);
     queryBuilder.addOrderBy.mockReturnValue(queryBuilder);
+    queryBuilder.skip.mockReturnValue(queryBuilder);
     queryBuilder.take.mockReturnValue(queryBuilder);
-    queryBuilder.getMany.mockResolvedValue([]);
+    queryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -47,15 +49,15 @@ describe('InstrumentsService', () => {
     service = module.get(InstrumentsService);
   });
 
-  it('devuelve [] sin pegarle a la DB si el término está vacío o son solo espacios', async () => {
-    const result = await service.search('   ');
+  it('devuelve una página vacía sin pegarle a la DB si el término está vacío o son solo espacios', async () => {
+    const result = await service.search('   ', 1, 20);
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ data: [], total: 0, page: 1, limit: 20 });
     expect(instrumentRepository.createQueryBuilder).not.toHaveBeenCalled();
   });
 
   it('excluye el instrumento de tipo MONEDA de los resultados', async () => {
-    await service.search('gal');
+    await service.search('gal', 1, 20);
 
     expect(queryBuilder.where).toHaveBeenCalledWith(
       'instrument.type != :moneda',
@@ -66,7 +68,7 @@ describe('InstrumentsService', () => {
   });
 
   it('busca por ticker y/o nombre con ILIKE (case-insensitive, substring)', async () => {
-    await service.search('gal');
+    await service.search('gal', 1, 20);
 
     expect(queryBuilder.andWhere).toHaveBeenCalledWith(
       '(instrument.ticker ILIKE :like OR instrument.name ILIKE :like)',
@@ -75,7 +77,7 @@ describe('InstrumentsService', () => {
   });
 
   it('recorta espacios del término de búsqueda antes de armar el patrón ILIKE', async () => {
-    await service.search('  gal  ');
+    await service.search('  gal  ', 1, 20);
 
     expect(queryBuilder.andWhere).toHaveBeenCalledWith(expect.any(String), {
       like: '%gal%',
@@ -83,7 +85,7 @@ describe('InstrumentsService', () => {
   });
 
   it('prioriza match exacto de ticker y luego prefijo de ticker en el orderBy', async () => {
-    await service.search('ggal');
+    await service.search('ggal', 1, 20);
 
     expect(queryBuilder.setParameter).toHaveBeenCalledWith('exact', 'ggal');
     expect(queryBuilder.setParameter).toHaveBeenCalledWith('prefix', 'ggal%');
@@ -92,13 +94,21 @@ describe('InstrumentsService', () => {
     );
   });
 
-  it('limita los resultados a 20', async () => {
-    await service.search('a');
+  it('calcula skip/take a partir de page/limit (offset-based)', async () => {
+    await service.search('a', 3, 10);
 
+    expect(queryBuilder.skip).toHaveBeenCalledWith(20); // (page 3 - 1) * limit 10
+    expect(queryBuilder.take).toHaveBeenCalledWith(10);
+  });
+
+  it('usa skip=0 en la primera página', async () => {
+    await service.search('a', 1, 20);
+
+    expect(queryBuilder.skip).toHaveBeenCalledWith(0);
     expect(queryBuilder.take).toHaveBeenCalledWith(20);
   });
 
-  it('devuelve lo que resuelve getMany()', async () => {
+  it('devuelve data/total desde getManyAndCount(), junto con page y limit', async () => {
     const instruments = [
       {
         id: 34,
@@ -107,10 +117,15 @@ describe('InstrumentsService', () => {
         type: InstrumentType.ACCIONES,
       },
     ];
-    queryBuilder.getMany.mockResolvedValue(instruments);
+    queryBuilder.getManyAndCount.mockResolvedValue([instruments, 37]);
 
-    const result = await service.search('ggal');
+    const result = await service.search('ggal', 2, 20);
 
-    expect(result).toBe(instruments);
+    expect(result).toEqual({
+      data: instruments,
+      total: 37,
+      page: 2,
+      limit: 20,
+    });
   });
 });

@@ -49,10 +49,16 @@ INSERT INTO users (id, email, accountNumber) VALUES
   (1, 'user1@test.com', '90001'),
   (2, 'user2@test.com', '90002');
 
+-- Se agregan BBAR/BHIP/BPAT (además de BMA) para poder probar paginado real:
+-- 4 instrumentos que matchean "banco" por nombre, suficiente para ejercitar
+-- más de una página con un limit chico.
 INSERT INTO instruments (id, ticker, "name", "type") VALUES
   (1, 'ARS', 'PESOS', 'MONEDA'),
   (2, 'GGAL', 'Grupo Financiero Galicia', 'ACCIONES'),
-  (3, 'BMA', 'Banco Macro S.A.', 'ACCIONES');
+  (3, 'BMA', 'Banco Macro S.A.', 'ACCIONES'),
+  (4, 'BBAR', 'Banco Frances', 'ACCIONES'),
+  (5, 'BHIP', 'Banco Hipotecario S.A.', 'ACCIONES'),
+  (6, 'BPAT', 'Banco Patagonia', 'ACCIONES');
 
 INSERT INTO marketdata (instrumentId, "date", "open", high, low, "close", previousclose) VALUES
   (2, '2024-01-01', 780.00, 810.00, 775.00, 800.00, 790.00),

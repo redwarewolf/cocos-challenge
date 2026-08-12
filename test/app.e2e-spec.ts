@@ -67,14 +67,15 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
   });
 
-  describe('GET /instruments/search', () => {
-    it('busca por ticker', async () => {
+  describe('GET /instruments/search (paginado)', () => {
+    it('busca por ticker y devuelve el envelope paginado', async () => {
       const res = await request(app.getHttpServer())
         .get('/instruments/search')
         .query({ q: 'ggal' });
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual([
+      expect(res.body).toMatchObject({ total: 1, page: 1, limit: 20 });
+      expect(res.body.data).toEqual([
         expect.objectContaining({
           ticker: 'GGAL',
           name: 'Grupo Financiero Galicia',
@@ -85,10 +86,33 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     it('busca por nombre', async () => {
       const res = await request(app.getHttpServer())
         .get('/instruments/search')
-        .query({ q: 'banco' });
+        .query({ q: 'banco', limit: 100 });
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual([expect.objectContaining({ ticker: 'BMA' })]);
+      expect(res.body.total).toBe(4); // BMA, BBAR, BHIP, BPAT
+      expect(res.body.data).toHaveLength(4);
+    });
+
+    it('pagina: page=1&limit=2 devuelve solo 2, page=2&limit=2 devuelve el resto sin repetir', async () => {
+      const page1 = await request(app.getHttpServer())
+        .get('/instruments/search')
+        .query({ q: 'banco', page: 1, limit: 2 });
+      const page2 = await request(app.getHttpServer())
+        .get('/instruments/search')
+        .query({ q: 'banco', page: 2, limit: 2 });
+
+      expect(page1.body).toMatchObject({ total: 4, page: 1, limit: 2 });
+      expect(page2.body).toMatchObject({ total: 4, page: 2, limit: 2 });
+      expect(page1.body.data).toHaveLength(2);
+      expect(page2.body.data).toHaveLength(2);
+
+      const tickersPage1 = page1.body.data.map(
+        (i: { ticker: string }) => i.ticker,
+      );
+      const tickersPage2 = page2.body.data.map(
+        (i: { ticker: string }) => i.ticker,
+      );
+      expect(new Set([...tickersPage1, ...tickersPage2]).size).toBe(4); // sin solapamiento
     });
 
     it('excluye el instrumento MONEDA aunque matchee', async () => {
@@ -97,20 +121,36 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         .query({ q: 'ars' });
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual([]);
+      expect(res.body).toMatchObject({ data: [], total: 0 });
     });
 
-    it('devuelve [] si no hay resultados', async () => {
+    it('devuelve una página vacía si no hay resultados', async () => {
       const res = await request(app.getHttpServer())
         .get('/instruments/search')
         .query({ q: 'zzzz' });
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual([]);
+      expect(res.body).toMatchObject({ data: [], total: 0 });
     });
 
     it('responde 400 si falta el query param "q"', async () => {
       const res = await request(app.getHttpServer()).get('/instruments/search');
+
+      expect(res.status).toBe(400);
+    });
+
+    it('responde 400 si limit supera el máximo permitido (100)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/instruments/search')
+        .query({ q: 'ggal', limit: 101 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('responde 400 si page no es un entero positivo', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/instruments/search')
+        .query({ q: 'ggal', page: 0 });
 
       expect(res.status).toBe(400);
     });

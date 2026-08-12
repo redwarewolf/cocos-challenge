@@ -47,9 +47,14 @@ Valor total de cuenta, pesos disponibles y posiciones del usuario.
 }
 ```
 
-### `GET /instruments/search?q=<texto>`
+### `GET /instruments/search?q=<texto>&page=&limit=`
 
 Busca por ticker y/o nombre (case-insensitive, substring). Excluye el instrumento `MONEDA` (ARS).
+Paginado: `page` (default 1) y `limit` (default 20, máximo 100). Respuesta:
+
+```json
+{ "data": [{ "id": 34, "ticker": "GGAL", "name": "Grupo Financiero Galicia", "type": "ACCIONES" }], "total": 1, "page": 1, "limit": 20 }
+```
 
 ### `POST /orders`
 
@@ -163,6 +168,12 @@ alcance de este challenge (montos en pesos con 2 decimales) no se justificó la 
 luego el resto (contiene en ticker o nombre), para que buscar `"ggal"` devuelva primero el ticker
 exacto antes que coincidencias parciales en nombres.
 
+**Paginación**: offset-based (`page`/`limit`, `getManyAndCount()`), no por cursor — para el volumen
+de un mercado real (miles de instrumentos, no millones) alcanza y es más simple de consumir. El
+envelope `{ data, total, page, limit }` y el `PaginationQueryDto`/`PaginatedResponseDto` (factory de
+Swagger, `src/common/dto/`) están pensados para reutilizarse en el resto de los endpoints que se
+agreguen (ej. historial de órdenes), no solo en `GET /instruments/search`.
+
 **Response DTOs**: `OrderResponseDto`, `InstrumentResponseDto`, `PortfolioResponseDto` (en cada
 módulo, carpeta `dto/`) documentan con `@ApiProperty` la forma real de cada respuesta para que
 Swagger genere un schema útil — antes los controllers devolvían entidades TypeORM/interfaces sin
@@ -178,7 +189,7 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 50 tests): uno por servicio (`OrdersService`, `ValuationService`,
+**Unit tests** (`src/**/*.spec.ts`, 52 tests): uno por servicio (`OrdersService`, `ValuationService`,
 `PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
 repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
 compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
@@ -197,7 +208,7 @@ contra la DB real. Con esa exclusión, `npm run test:cov` reporta cobertura solo
 con un `coverageThreshold` en `package.json` un poco por debajo de eso para detectar regresiones sin
 ser un número arbitrario.
 
-**E2E tests** (`test/app.e2e-spec.ts`, 34 tests): levantan un Postgres real y descartable con
+**E2E tests** (`test/app.e2e-spec.ts`, 37 tests): levantan un Postgres real y descartable con
 [Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts` +
 `test/setup/schema.sql`, mismo esquema que `database.sql` con un seed propio y determinístico), y
 corren la app de punta a punta (HTTP → controller → service → DB) contra los 4 endpoints, incluyendo
