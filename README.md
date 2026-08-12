@@ -1,5 +1,7 @@
 # Cocos Challenge — Backend
 
+[![CI](https://github.com/redwarewolf/cocos-challenge/actions/workflows/ci.yml/badge.svg)](https://github.com/redwarewolf/cocos-challenge/actions/workflows/ci.yml)
+
 API en NestJS + TypeScript + TypeORM (PostgreSQL) que resuelve el
 [backend challenge de Cocos Capital](https://github.com/cocos-capital/cocos-challenge/blob/main/backend-challenge.md):
 consulta de portfolio, búsqueda de instrumentos y envío de órdenes al mercado.
@@ -179,9 +181,15 @@ container se crea y se destruye en cada corrida. Para que esto funcione, `TypeOr
 importar el módulo, así el test puede pisar `DATABASE_URL`/`DB_SSL` *antes* de ese momento. En
 dev/prod normal el comportamiento no cambia.
 
+**CI** (`.github/workflows/ci.yml`): en cada push/PR a `main` corre, en este orden, lint (sin
+`--fix`, falla si hay algo para corregir), type-check, unit tests + cobertura, e2e (Testcontainers —
+el runner de GitHub Actions ya trae Docker) y el build de producción. No necesita ningún secret: el
+e2e resuelve su propia base efímera, nunca la de Cocos.
+
 ## Estructura
 
 ```
+.github/workflows/ci.yml  # lint + type-check + unit + e2e + build en cada push/PR a main
 src/
   database/
     entities/      # User, Instrument, Order, MarketData — mapeadas 1:1 a las columnas reales
