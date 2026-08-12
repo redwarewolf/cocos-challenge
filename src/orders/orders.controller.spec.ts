@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrderSide, OrderType } from '../database/entities/order.entity';
+import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
@@ -7,7 +8,11 @@ import { OrdersService } from './orders.service';
 describe('OrdersController', () => {
   let controller: OrdersController;
 
-  const ordersService = { create: jest.fn(), cancel: jest.fn() };
+  const ordersService = {
+    create: jest.fn(),
+    createCashMovement: jest.fn(),
+    cancel: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -34,6 +39,21 @@ describe('OrdersController', () => {
     const result = await controller.create(dto);
 
     expect(ordersService.create).toHaveBeenCalledWith(dto);
+    expect(result).toBe(created);
+  });
+
+  it('createCashMovement() delega en OrdersService.createCashMovement() con el DTO recibido', async () => {
+    const dto: CreateCashMovementDto = {
+      userId: 1,
+      side: OrderSide.CASH_IN,
+      amount: 100000,
+    };
+    const created = { id: 2, ...dto, status: 'FILLED' };
+    ordersService.createCashMovement.mockResolvedValue(created);
+
+    const result = await controller.createCashMovement(dto);
+
+    expect(ordersService.createCashMovement).toHaveBeenCalledWith(dto);
     expect(result).toBe(created);
   });
 

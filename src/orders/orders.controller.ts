@@ -7,6 +7,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { Order } from '../database/entities/order.entity';
+import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
 
@@ -17,6 +18,11 @@ export class OrdersController {
   @Post()
   create(@Body() dto: CreateOrderDto): Promise<Order> {
     return this.ordersService.create(dto);
+  }
+
+  @Post('cash')
+  createCashMovement(@Body() dto: CreateCashMovementDto): Promise<Order> {
+    return this.ordersService.createCashMovement(dto);
   }
 
   @Patch(':id/cancel')

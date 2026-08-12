@@ -105,3 +105,37 @@ PATCH {{baseUrl}}/orders/14/cancel
 
 ### Cancelar una orden que no está NEW -> 400
 PATCH {{baseUrl}}/orders/1/cancel
+
+###
+
+### 5) (Bonus) Fondear al usuario 2 (arranca en $0 en el seed) para poder operar con él
+POST {{baseUrl}}/orders/cash
+Content-Type: application/json
+
+{
+  "userId": 2,
+  "side": "CASH_IN",
+  "amount": 50000
+}
+
+### Retirar — se rechaza si no hay disponible suficiente (queda persistida como REJECTED)
+POST {{baseUrl}}/orders/cash
+Content-Type: application/json
+
+{
+  "userId": 2,
+  "side": "CASH_OUT",
+  "amount": 999999999
+}
+
+### Ahora sí, el usuario 2 ya puede comprar con el cash recién fondeado
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 2,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 5
+}

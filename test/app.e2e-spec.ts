@@ -295,6 +295,86 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
   });
 
+  describe('POST /orders/cash — fondear y retirar (usuario 2, arranca en $0)', () => {
+    it('CASH_IN funda al usuario y se refleja en el portfolio', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .send({ userId: 2, side: 'CASH_IN', amount: 50000 });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({
+        status: 'FILLED',
+        side: 'CASH_IN',
+        size: 50000,
+      });
+
+      const portfolio = await request(app.getHttpServer()).get('/portfolio/2');
+      expect(portfolio.body.availableCash).toBe(50000);
+    });
+
+    it('CASH_OUT por más de lo disponible queda REJECTED (pero se persiste)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .send({ userId: 2, side: 'CASH_OUT', amount: 200000 });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ status: 'REJECTED' });
+    });
+
+    it('CASH_OUT dentro de lo disponible se llena y descuenta del portfolio', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .send({ userId: 2, side: 'CASH_OUT', amount: 20000 });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ status: 'FILLED' });
+
+      const portfolio = await request(app.getHttpServer()).get('/portfolio/2');
+      expect(portfolio.body.availableCash).toBe(30000);
+    });
+
+    it('con el cash recién fondeado, el usuario ya puede comprar', async () => {
+      const res = await request(app.getHttpServer()).post('/orders').send({
+        userId: 2,
+        instrumentId: 2,
+        side: 'BUY',
+        type: 'MARKET',
+        size: 20,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({
+        status: 'FILLED',
+        size: 20,
+        price: '900.00',
+      });
+    });
+
+    it('400 si el amount no es positivo', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .send({ userId: 2, side: 'CASH_IN', amount: -100 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si side no es CASH_IN/CASH_OUT', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .send({ userId: 2, side: 'BUY', amount: 100 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('404 si el usuario no existe', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .send({ userId: 999, side: 'CASH_IN', amount: 100 });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('Concurrencia real (advisory lock por userId, Postgres real)', () => {
     it('dos BUY concurrentes que individualmente entran pero juntas no: una FILLED y la otra REJECTED', async () => {
       const before = await request(app.getHttpServer()).get('/portfolio/1');
@@ -359,6 +439,29 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         (p: { instrumentId: number }) => p.instrumentId === 2,
       );
       expect(positionAfter?.quantity ?? 0).toBeGreaterThanOrEqual(0);
+    });
+
+    it('dos CASH_OUT concurrentes que individualmente entran pero juntos no: uno FILLED y el otro REJECTED', async () => {
+      const before = await request(app.getHttpServer()).get('/portfolio/2');
+      const availableBefore = before.body.availableCash as number;
+
+      // cada retiro usa poco más de la mitad del disponible actual
+      const amountEach = Math.floor(availableBefore * 0.6);
+
+      const [a, b] = await Promise.all([
+        request(app.getHttpServer())
+          .post('/orders/cash')
+          .send({ userId: 2, side: 'CASH_OUT', amount: amountEach }),
+        request(app.getHttpServer())
+          .post('/orders/cash')
+          .send({ userId: 2, side: 'CASH_OUT', amount: amountEach }),
+      ]);
+
+      const statuses = [a.body.status, b.body.status].sort();
+      expect(statuses).toEqual(['FILLED', 'REJECTED']);
+
+      const after = await request(app.getHttpServer()).get('/portfolio/2');
+      expect(after.body.availableCash).toBeGreaterThanOrEqual(0);
     });
   });
 });
