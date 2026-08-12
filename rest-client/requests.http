@@ -1,0 +1,107 @@
+### Cocos Challenge — colección de requests (VS Code REST Client / similar)
+### Usa datos reales del seed: userId 1..4, instrumentos GGAL(34), PAMP(47), METR(54), MTR(31), ARS(66, MONEDA)
+
+@baseUrl = http://localhost:3000
+
+### 1) Portfolio del usuario 1
+GET {{baseUrl}}/portfolio/1
+
+### Portfolio de un usuario sin movimientos (vacío pero válido)
+GET {{baseUrl}}/portfolio/2
+
+### Portfolio de un usuario inexistente -> 404
+GET {{baseUrl}}/portfolio/999
+
+###
+
+### 2) Búsqueda de instrumentos por ticker
+GET {{baseUrl}}/instruments/search?q=gal
+
+### Búsqueda de instrumentos por nombre
+GET {{baseUrl}}/instruments/search?q=banco
+
+### Búsqueda sin resultados
+GET {{baseUrl}}/instruments/search?q=zzzz
+
+###
+
+### 3) Enviar orden — MARKET BUY por cantidad exacta de acciones
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 10
+}
+
+### Enviar orden — MARKET BUY por monto en pesos (size se calcula automáticamente)
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "amount": 5000
+}
+
+### Enviar orden — LIMIT BUY (queda en NEW hasta que se llene o se cancele)
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 5,
+  "price": 700
+}
+
+### Enviar orden — SELL MARKET
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 47,
+  "side": "SELL",
+  "type": "MARKET",
+  "size": 5
+}
+
+### Enviar orden — se rechaza por fondos insuficientes (queda persistida como REJECTED)
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 2,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 100
+}
+
+### Enviar orden — error de validación: LIMIT sin price -> 400
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 5
+}
+
+###
+
+### 4) (Bonus) Cancelar una orden NEW — reemplazar :id por el id devuelto en el POST de LIMIT de arriba
+PATCH {{baseUrl}}/orders/14/cancel
+
+### Cancelar una orden que no está NEW -> 400
+PATCH {{baseUrl}}/orders/1/cancel

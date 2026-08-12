@@ -1,0 +1,27 @@
+# compiled output
+/dist
+/node_modules
+
+# env
+.env
+.env.*.local
+
+# logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# OS
+.DS_Store
+
+# local tooling
+.claude/
+
+# coverage
+/coverage
