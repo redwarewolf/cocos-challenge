@@ -62,6 +62,18 @@ También acepta `"amount": 5000` en pesos en lugar de `size` (se calcula la cant
 acciones enteras que ese monto permite comprar al precio resuelto).
 Para `LIMIT` es obligatorio enviar `"price"`; para `MARKET` se ignora (se usa el último `close`).
 
+### `POST /orders/cash` (bonus, no pedido explícitamente por el challenge)
+
+Deposita (`CASH_IN`) o retira (`CASH_OUT`) pesos de la cuenta de un usuario — útil para fondear
+usuarios de prueba sin tocar la base directamente (en el seed original solo el usuario 1 tiene cash).
+
+```json
+{ "userId": 2, "side": "CASH_IN", "amount": 50000 }
+```
+
+`CASH_IN` siempre se llena; `CASH_OUT` queda `REJECTED` si no hay disponible suficiente (mismo
+criterio que un `SELL`). `amount` es un entero en pesos (misma convención que `size`).
+
 ### `PATCH /orders/:id/cancel` (bonus, no pedido explícitamente por el challenge)
 
 Cancela una orden en estado `NEW`. Cualquier otro estado responde `400`.
@@ -103,10 +115,10 @@ Esta lógica vive en un único `ValuationService` (`src/valuation`), reutilizado
 duplicar el cálculo de "disponible" en dos lugares.
 
 **Envío de órdenes**:
-- Solo expone `BUY`/`SELL`. El challenge modela las transferencias de cash (`CASH_IN`/`CASH_OUT`)
-  como filas de `orders`, pero el enunciado de este endpoint pide explícitamente "una orden de
-  compra o venta" — se asume que esos movimientos no se crean vía API en este challenge (podrían
-  agregarse como un endpoint aparte si se necesitara).
+- `POST /orders` solo expone `BUY`/`SELL` — el enunciado de este endpoint pide explícitamente "una
+  orden de compra o venta", así que `CASH_IN`/`CASH_OUT` viven en un endpoint aparte
+  (`POST /orders/cash`, ver arriba) en vez de sobrecargar el mismo DTO con campos que no aplican a
+  un movimiento de cash (no hay `price`/`type` MARKET-LIMIT que tenga sentido ahí).
 - `size` y `amount` son mutuamente excluyentes; si se envía `amount`, `size = floor(amount / price)`
   y se rechaza (400) si da 0 (no se admiten fracciones de acciones).
 - `MARKET` usa el último `close` de `marketdata`; `LIMIT` requiere `price` en el body.
@@ -125,14 +137,15 @@ request), dos órdenes del mismo usuario enviadas casi simultáneamente podrían
 gastando más pesos o vendiendo más acciones de las que el usuario realmente tiene. `OrdersService.create`
 envuelve la lectura del disponible + el insert de la orden en una transacción con
 `pg_advisory_xact_lock(userId)` (`src/orders/orders.service.ts`), serializando toda creación de
-órdenes de un mismo usuario (cualquier instrumento, BUY o SELL) sin bloquear a otros usuarios entre
-sí. No hace falta lockear entre usuarios distintos ni "emparejar" compra con venta: el challenge
-aclara que no hace falta simular el mercado, así que cada orden se ejecuta unilateralmente contra
-`marketdata.close` (liquidez asumida infinita), no contra la orden de otro usuario. Verificado tanto
-a mano contra la base real como con un test e2e automatizado (`test/app.e2e-spec.ts`, describe
-"Concurrencia real") que dispara pares de órdenes concurrentes (2 BUY y 2 SELL) contra un Postgres
-real de Testcontainers, individualmente dentro del disponible pero juntas no: en ambos casos una
-queda `FILLED` y la otra `REJECTED`, sin que el disponible/tenencia queden nunca negativos.
+órdenes/movimientos de un mismo usuario (BUY/SELL de cualquier instrumento, o CASH_IN/CASH_OUT) sin
+bloquear a otros usuarios entre sí. No hace falta lockear entre usuarios distintos ni "emparejar"
+compra con venta: el challenge aclara que no hace falta simular el mercado, así que cada orden se
+ejecuta unilateralmente contra `marketdata.close` (liquidez asumida infinita), no contra la orden de
+otro usuario. Verificado tanto a mano contra la base real como con un test e2e automatizado
+(`test/app.e2e-spec.ts`, describe "Concurrencia real") que dispara pares de movimientos concurrentes
+(2 BUY, 2 SELL y 2 CASH_OUT) contra un Postgres real de Testcontainers, individualmente dentro del
+disponible pero juntos no: en los tres casos uno queda `FILLED` y el otro `REJECTED`, sin que el
+disponible/tenencia queden nunca negativos.
 
 **Precisión numérica**: `price`/`close` viajan como `string` desde `pg` (Postgres `numeric`) para no
 perder precisión al parsear; los cálculos intermedios se hacen con `Number` en JS. Para un dominio
@@ -151,7 +164,7 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 43 tests): uno por servicio (`OrdersService`, `ValuationService`,
+**Unit tests** (`src/**/*.spec.ts`, 49 tests): uno por servicio (`OrdersService`, `ValuationService`,
 `PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
 repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
 compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
@@ -166,11 +179,11 @@ archivos declarativos (decorators de Nest/TypeORM/class-validator, wiring de DI,
 sin ramas ni cómputo que un unit test pueda ejercitar de forma significativa — están cubiertos igual,
 pero por los e2e (que sí bootean la app entera) o, en el caso de la migración, por haberla corrido
 contra la DB real. Con esa exclusión, `npm run test:cov` reporta cobertura solo de `services` y
-`controllers` (la lógica real): 98.65% statements / 82.44% branches / 100% functions / 98.5% lines,
+`controllers` (la lógica real): ~98.7% statements / ~82.7% branches / 100% functions / ~98.6% lines,
 con un `coverageThreshold` en `package.json` un poco por debajo de eso para detectar regresiones sin
 ser un número arbitrario.
 
-**E2E tests** (`test/app.e2e-spec.ts`, 24 tests): levantan un Postgres real y descartable con
+**E2E tests** (`test/app.e2e-spec.ts`, 32 tests): levantan un Postgres real y descartable con
 [Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts` +
 `test/setup/schema.sql`, mismo esquema que `database.sql` con un seed propio y determinístico), y
 corren la app de punta a punta (HTTP → controller → service → DB) contra los 4 endpoints, incluyendo
@@ -198,7 +211,7 @@ src/
   valuation/        # ValuationService: cash disponible + posiciones (compartido) + .spec
   portfolio/        # GET /portfolio/:userId + .spec
   instruments/      # GET /instruments/search + .spec
-  orders/           # POST /orders, PATCH /orders/:id/cancel + .spec
+  orders/           # POST /orders, POST /orders/cash, PATCH /orders/:id/cancel + .spec
 test/
   app.e2e-spec.ts   # e2e de los 4 endpoints contra Postgres real (Testcontainers)
   setup/            # helper que levanta/destruye el container + schema.sql (esquema + seed de test)

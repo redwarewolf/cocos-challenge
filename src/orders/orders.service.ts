@@ -17,6 +17,7 @@ import {
 } from '../database/entities/order.entity';
 import { User } from '../database/entities/user.entity';
 import { ValuationService } from '../valuation/valuation.service';
+import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 
 @Injectable()
@@ -65,22 +66,12 @@ export class OrdersService {
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      // Advisory lock transaccional por usuario: serializa toda creación de órdenes de
-      // este usuario (BUY o SELL, cualquier instrumento). Sin esto, dos órdenes
-      // concurrentes podrían leer el mismo "disponible" (cash o tenencia) antes de que
-      // ninguna se hubiera guardado, pasar la validación las dos, y terminar gastando
-      // más pesos o vendiendo más acciones de las que el usuario realmente tiene
-      // (race check-then-act / "doble gasto"). Se libera solo al commitear/rollbackear
-      // esta transacción, y no bloquea a otros usuarios (la key es el userId).
-      await manager.query('SELECT pg_advisory_xact_lock($1)', [dto.userId]);
-
+    return this.withUserLock(dto.userId, async (manager) => {
       const price = await this.resolvePrice(dto, manager);
       const size = this.resolveSize(dto, price);
       const status = await this.resolveStatus(dto, size, price, manager);
 
-      const orderRepo = manager.getRepository(Order);
-      const order = orderRepo.create({
+      return this.saveOrder(manager, {
         userId: dto.userId,
         instrumentId: dto.instrumentId,
         side: dto.side,
@@ -88,10 +79,40 @@ export class OrdersService {
         size,
         price: price.toFixed(2),
         status,
-        datetime: new Date(),
       });
+    });
+  }
 
-      return orderRepo.save(order);
+  /** Deposita (CASH_IN) o retira (CASH_OUT) pesos de la cuenta del usuario. */
+  async createCashMovement(dto: CreateCashMovementDto): Promise<Order> {
+    const user = await this.userRepository.findOne({
+      where: { id: dto.userId },
+    });
+    if (!user) {
+      throw new NotFoundException(`User ${dto.userId} not found`);
+    }
+
+    const cashInstrument = await this.valuationService.getCashInstrument();
+
+    return this.withUserLock(dto.userId, async (manager) => {
+      // Los depósitos siempre se llenan; los retiros solo si hay disponible suficiente
+      // (mismo criterio que un SELL sin fondos: se persiste igual, como REJECTED).
+      const status =
+        dto.side === OrderSide.CASH_OUT &&
+        dto.amount >
+          (await this.valuationService.getAvailableCash(dto.userId, manager))
+          ? OrderStatus.REJECTED
+          : OrderStatus.FILLED;
+
+      return this.saveOrder(manager, {
+        userId: dto.userId,
+        instrumentId: cashInstrument.id,
+        side: dto.side,
+        type: OrderType.MARKET,
+        size: dto.amount,
+        price: (1).toFixed(2),
+        status,
+      });
     });
   }
 
@@ -109,6 +130,37 @@ export class OrdersService {
     }
     order.status = OrderStatus.CANCELLED;
     return this.orderRepository.save(order);
+  }
+
+  /**
+   * Advisory lock transaccional por usuario: serializa toda creación de movimientos de
+   * este usuario (órdenes BUY/SELL o cash CASH_IN/CASH_OUT). Sin esto, dos requests
+   * concurrentes podrían leer el mismo "disponible" (cash o tenencia) antes de que
+   * ninguno se hubiera guardado, pasar la validación los dos, y terminar gastando más
+   * pesos o vendiendo más acciones de las que el usuario realmente tiene (race
+   * check-then-act / "doble gasto"). Se libera solo al commitear/rollbackear la
+   * transacción, y no bloquea a otros usuarios (la key es el userId).
+   */
+  private async withUserLock<T>(
+    userId: number,
+    fn: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [userId]);
+      return fn(manager);
+    });
+  }
+
+  private saveOrder(
+    manager: EntityManager,
+    data: Pick<
+      Order,
+      'userId' | 'instrumentId' | 'side' | 'type' | 'size' | 'price' | 'status'
+    >,
+  ): Promise<Order> {
+    const orderRepo = manager.getRepository(Order);
+    const order = orderRepo.create({ ...data, datetime: new Date() });
+    return orderRepo.save(order);
   }
 
   private async resolvePrice(

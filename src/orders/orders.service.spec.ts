@@ -46,6 +46,7 @@ describe('OrdersService (functional: envío de órdenes)', () => {
     getLastClose: jest.fn(),
     getAvailableCash: jest.fn(),
     getAvailableQuantity: jest.fn(),
+    getCashInstrument: jest.fn(),
   };
 
   // `create()` corre dentro de dataSource.transaction(); acá simulamos ese wrapper
@@ -265,6 +266,79 @@ describe('OrdersService (functional: envío de órdenes)', () => {
           side: OrderSide.BUY,
           type: OrderType.MARKET,
           size: 10,
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('createCashMovement', () => {
+    beforeEach(() => {
+      valuationService.getCashInstrument.mockResolvedValue(cash);
+    });
+
+    it('un CASH_IN siempre se llena, sin importar el disponible actual', async () => {
+      valuationService.getAvailableCash.mockResolvedValue(0);
+
+      const order = await service.createCashMovement({
+        userId: 1,
+        side: OrderSide.CASH_IN,
+        amount: 100000,
+      });
+
+      expect(order.status).toBe(OrderStatus.FILLED);
+      expect(order.instrumentId).toBe(cash.id);
+      expect(order.size).toBe(100000);
+      expect(order.price).toBe('1.00');
+    });
+
+    it('un CASH_OUT se llena si hay disponible suficiente', async () => {
+      valuationService.getAvailableCash.mockResolvedValue(100000);
+
+      const order = await service.createCashMovement({
+        userId: 1,
+        side: OrderSide.CASH_OUT,
+        amount: 50000,
+      });
+
+      expect(order.status).toBe(OrderStatus.FILLED);
+    });
+
+    it('un CASH_OUT queda REJECTED (pero se persiste) si no hay disponible suficiente', async () => {
+      valuationService.getAvailableCash.mockResolvedValue(1000);
+
+      const order = await service.createCashMovement({
+        userId: 1,
+        side: OrderSide.CASH_OUT,
+        amount: 50000,
+      });
+
+      expect(order.status).toBe(OrderStatus.REJECTED);
+      expect(orderRepository.save).toHaveBeenCalled();
+    });
+
+    it('toma el advisory lock por userId', async () => {
+      valuationService.getAvailableCash.mockResolvedValue(100000);
+
+      await service.createCashMovement({
+        userId: 9,
+        side: OrderSide.CASH_IN,
+        amount: 1000,
+      });
+
+      expect(transactionalManager.query).toHaveBeenCalledWith(
+        'SELECT pg_advisory_xact_lock($1)',
+        [9],
+      );
+    });
+
+    it('lanza 404 si el usuario no existe', async () => {
+      userRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.createCashMovement({
+          userId: 999,
+          side: OrderSide.CASH_IN,
+          amount: 1000,
         }),
       ).rejects.toThrow(NotFoundException);
     });
