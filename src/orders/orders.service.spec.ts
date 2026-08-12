@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import {
   Instrument,
   InstrumentType,
@@ -48,6 +48,20 @@ describe('OrdersService (functional: envío de órdenes)', () => {
     getAvailableQuantity: jest.fn(),
   };
 
+  // `create()` corre dentro de dataSource.transaction(); acá simulamos ese wrapper
+  // devolviendo un `manager` fake cuyo getRepository(Order) es el mismo mock de arriba,
+  // para poder seguir asertando sobre orderRepository.save sin levantar una DB real.
+  const transactionalManager = {
+    query: jest.fn().mockResolvedValue(undefined),
+    getRepository: jest.fn().mockReturnValue(orderRepository),
+  };
+  const dataSource = {
+    transaction: jest.fn(
+      (cb: (manager: typeof transactionalManager) => Promise<Order>) =>
+        cb(transactionalManager),
+    ),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     userRepository.findOne.mockResolvedValue(user);
@@ -63,6 +77,7 @@ describe('OrdersService (functional: envío de órdenes)', () => {
           useValue: instrumentRepository,
         },
         { provide: ValuationService, useValue: valuationService },
+        { provide: getDataSourceToken(), useValue: dataSource },
       ],
     }).compile();
 
@@ -85,6 +100,31 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       expect(order.status).toBe(OrderStatus.FILLED);
       expect(order.price).toBe('900.00');
       expect(order.size).toBe(10);
+    });
+
+    it('toma el advisory lock por userId antes de leer disponible y guardar la orden', async () => {
+      valuationService.getLastClose.mockResolvedValue(900);
+      valuationService.getAvailableCash.mockResolvedValue(100_000);
+
+      await service.create({
+        userId: 7,
+        instrumentId: 34,
+        side: OrderSide.BUY,
+        type: OrderType.MARKET,
+        size: 1,
+      });
+
+      expect(dataSource.transaction).toHaveBeenCalled();
+      expect(transactionalManager.query).toHaveBeenCalledWith(
+        'SELECT pg_advisory_xact_lock($1)',
+        [7],
+      );
+      // el lock se pide antes de consultar el disponible / guardar la orden
+      const lockCallOrder =
+        transactionalManager.query.mock.invocationCallOrder[0];
+      const availableCashCallOrder =
+        valuationService.getAvailableCash.mock.invocationCallOrder[0];
+      expect(lockCallOrder).toBeLessThan(availableCashCallOrder);
     });
 
     it('calcula el size a partir de "amount", redondeando hacia abajo sin fracciones', async () => {

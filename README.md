@@ -115,6 +115,20 @@ duplicar el cálculo de "disponible" en dos lugares.
   persisten.
 - Precios se persisten con 2 decimales (`NUMERIC(10,2)`, igual que la columna real).
 
+**Concurrencia**: como no hay una tabla de balances/posiciones (todo se deriva de `orders` en cada
+request), dos órdenes del mismo usuario enviadas casi simultáneamente podrían leer el mismo
+"disponible" antes de que ninguna se hubiera guardado, pasar la validación las dos, y terminar
+gastando más pesos o vendiendo más acciones de las que el usuario realmente tiene. `OrdersService.create`
+envuelve la lectura del disponible + el insert de la orden en una transacción con
+`pg_advisory_xact_lock(userId)` (`src/orders/orders.service.ts`), serializando toda creación de
+órdenes de un mismo usuario (cualquier instrumento, BUY o SELL) sin bloquear a otros usuarios entre
+sí. No hace falta lockear entre usuarios distintos ni "emparejar" compra con venta: el challenge
+aclara que no hace falta simular el mercado, así que cada orden se ejecuta unilateralmente contra
+`marketdata.close` (liquidez asumida infinita), no contra la orden de otro usuario. Verificado
+manualmente contra la base real disparando pares de órdenes concurrentes (2 BUY y 2 SELL) que
+individualmente entraban en el disponible pero juntas no: en ambos casos una queda `FILLED` y la
+otra `REJECTED`, sin que el disponible/tenencia queden nunca negativos.
+
 **Precisión numérica**: `price`/`close` viajan como `string` desde `pg` (Postgres `numeric`) para no
 perder precisión al parsear; los cálculos intermedios se hacen con `Number` en JS. Para un dominio
 real de trading se recomendaría una librería de precisión decimal (`decimal.js`), pero para el
@@ -132,8 +146,11 @@ npm test
 
 `src/orders/orders.service.spec.ts` es el test funcional pedido por el challenge sobre el envío de
 órdenes: cubre MARKET/LIMIT, cálculo de `size` desde `amount`, rechazo por fondos/tenencia
-insuficientes, validaciones de input y cancelación. Usa repositorios en memoria (no pega contra la
-red/DB), para que corra rápido y de forma determinística sin depender de la base compartida.
+insuficientes, validaciones de input, cancelación, y que el advisory lock se pida (con el `userId`
+correcto) antes de leer el disponible. Usa repositorios en memoria (no pega contra la red/DB), para
+que corra rápido y de forma determinística sin depender de la base compartida — la serialización
+real del lock bajo concurrencia se verificó aparte, a mano, contra la base real (ver sección
+"Concurrencia" arriba).
 
 ## Estructura
 

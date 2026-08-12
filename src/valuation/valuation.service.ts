@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import {
   Instrument,
   InstrumentType,
@@ -30,11 +30,20 @@ export class ValuationService {
     return cash;
   }
 
-  /** Pesos disponibles para operar: todos los movimientos FILLED (CASH_IN/OUT + BUY/SELL). */
-  async getAvailableCash(userId: number): Promise<number> {
-    const rows: { available: string | null }[] =
-      await this.orderRepository.manager.query(
-        `
+  /**
+   * Pesos disponibles para operar: todos los movimientos FILLED (CASH_IN/OUT + BUY/SELL).
+   *
+   * Acepta un `manager` transaccional opcional: OrdersService lo usa para leer este valor
+   * dentro de la misma transacción en la que toma el advisory lock por usuario, así la
+   * lectura y el insert de la orden quedan protegidos contra condiciones de carrera
+   * (ver OrdersService.create).
+   */
+  async getAvailableCash(
+    userId: number,
+    manager: EntityManager = this.orderRepository.manager,
+  ): Promise<number> {
+    const rows: { available: string | null }[] = await manager.query(
+      `
       SELECT COALESCE(SUM(
         CASE side
           WHEN 'CASH_IN' THEN size * price
@@ -47,40 +56,43 @@ export class ValuationService {
       FROM orders
       WHERE userid = $1 AND status = 'FILLED'
       `,
-        [userId],
-      );
+      [userId],
+    );
     return Number(rows[0]?.available ?? 0);
   }
 
   /**
    * Tenencia neta (FILLED BUY - FILLED SELL) de un instrumento para un usuario.
-   * Usada tanto para armar el listado de posiciones como para validar ventas.
+   * Usada tanto para armar el listado de posiciones como para validar ventas
+   * (mismo motivo del parámetro `manager` que en getAvailableCash).
    */
   async getAvailableQuantity(
     userId: number,
     instrumentId: number,
+    manager: EntityManager = this.orderRepository.manager,
   ): Promise<number> {
-    const rows: { quantity: string | null }[] =
-      await this.orderRepository.manager.query(
-        `
+    const rows: { quantity: string | null }[] = await manager.query(
+      `
       SELECT COALESCE(SUM(
         CASE side WHEN 'BUY' THEN size WHEN 'SELL' THEN -size ELSE 0 END
       ), 0) AS quantity
       FROM orders
       WHERE userid = $1 AND instrumentid = $2 AND status = 'FILLED' AND side IN ('BUY', 'SELL')
       `,
-        [userId, instrumentId],
-      );
+      [userId, instrumentId],
+    );
     return Number(rows[0]?.quantity ?? 0);
   }
 
   /** Último precio de cierre conocido (marketdata.close más reciente) para un instrumento. */
-  async getLastClose(instrumentId: number): Promise<number | null> {
-    const rows: { close: string | null }[] =
-      await this.orderRepository.manager.query(
-        `SELECT close FROM marketdata WHERE instrumentid = $1 ORDER BY date DESC LIMIT 1`,
-        [instrumentId],
-      );
+  async getLastClose(
+    instrumentId: number,
+    manager: EntityManager = this.orderRepository.manager,
+  ): Promise<number | null> {
+    const rows: { close: string | null }[] = await manager.query(
+      `SELECT close FROM marketdata WHERE instrumentid = $1 ORDER BY date DESC LIMIT 1`,
+      [instrumentId],
+    );
     const close = rows[0]?.close;
     return close === undefined || close === null ? null : Number(close);
   }

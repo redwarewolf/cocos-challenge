@@ -3,8 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import {
   Instrument,
   InstrumentType,
@@ -28,6 +28,7 @@ export class OrdersService {
     @InjectRepository(Instrument)
     private readonly instrumentRepository: Repository<Instrument>,
     private readonly valuationService: ValuationService,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   async create(dto: CreateOrderDto): Promise<Order> {
@@ -64,22 +65,34 @@ export class OrdersService {
       );
     }
 
-    const price = await this.resolvePrice(dto);
-    const size = this.resolveSize(dto, price);
-    const status = await this.resolveStatus(dto, size, price);
+    return this.dataSource.transaction(async (manager) => {
+      // Advisory lock transaccional por usuario: serializa toda creación de órdenes de
+      // este usuario (BUY o SELL, cualquier instrumento). Sin esto, dos órdenes
+      // concurrentes podrían leer el mismo "disponible" (cash o tenencia) antes de que
+      // ninguna se hubiera guardado, pasar la validación las dos, y terminar gastando
+      // más pesos o vendiendo más acciones de las que el usuario realmente tiene
+      // (race check-then-act / "doble gasto"). Se libera solo al commitear/rollbackear
+      // esta transacción, y no bloquea a otros usuarios (la key es el userId).
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [dto.userId]);
 
-    const order = this.orderRepository.create({
-      userId: dto.userId,
-      instrumentId: dto.instrumentId,
-      side: dto.side,
-      type: dto.type,
-      size,
-      price: price.toFixed(2),
-      status,
-      datetime: new Date(),
+      const price = await this.resolvePrice(dto, manager);
+      const size = this.resolveSize(dto, price);
+      const status = await this.resolveStatus(dto, size, price, manager);
+
+      const orderRepo = manager.getRepository(Order);
+      const order = orderRepo.create({
+        userId: dto.userId,
+        instrumentId: dto.instrumentId,
+        side: dto.side,
+        type: dto.type,
+        size,
+        price: price.toFixed(2),
+        status,
+        datetime: new Date(),
+      });
+
+      return orderRepo.save(order);
     });
-
-    return this.orderRepository.save(order);
   }
 
   async cancel(orderId: number): Promise<Order> {
@@ -98,12 +111,16 @@ export class OrdersService {
     return this.orderRepository.save(order);
   }
 
-  private async resolvePrice(dto: CreateOrderDto): Promise<number> {
+  private async resolvePrice(
+    dto: CreateOrderDto,
+    manager: EntityManager,
+  ): Promise<number> {
     if (dto.type === OrderType.LIMIT) {
       return dto.price!;
     }
     const lastClose = await this.valuationService.getLastClose(
       dto.instrumentId,
+      manager,
     );
     if (lastClose === null) {
       throw new BadRequestException(
@@ -130,15 +147,17 @@ export class OrdersService {
     dto: CreateOrderDto,
     size: number,
     price: number,
+    manager: EntityManager,
   ): Promise<OrderStatus> {
     const hasEnoughFunds =
       dto.side === OrderSide.BUY
         ? size * price <=
-          (await this.valuationService.getAvailableCash(dto.userId))
+          (await this.valuationService.getAvailableCash(dto.userId, manager))
         : size <=
           (await this.valuationService.getAvailableQuantity(
             dto.userId,
             dto.instrumentId,
+            manager,
           ));
 
     if (!hasEnoughFunds) {
