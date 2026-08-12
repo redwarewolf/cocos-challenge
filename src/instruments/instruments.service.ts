@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Paginated } from '../common/dto/paginated-response.dto';
 import {
   Instrument,
   InstrumentType,
 } from '../database/entities/instrument.entity';
-
-const MAX_RESULTS = 20;
 
 @Injectable()
 export class InstrumentsService {
@@ -19,14 +18,20 @@ export class InstrumentsService {
    * Busca por ticker y/o nombre (case-insensitive, substring). Se excluye el instrumento
    * de tipo MONEDA (ARS) porque no es un "activo" que un usuario busque para operar.
    * Los resultados se ordenan priorizando match exacto de ticker, luego prefijo, luego el resto.
+   * Paginado con page/limit (offset-based): alcanza para el volumen de un mercado real
+   * (miles de instrumentos, no millones), no se justifica paginado por cursor acá.
    */
-  async search(query: string): Promise<Instrument[]> {
+  async search(
+    query: string,
+    page: number,
+    limit: number,
+  ): Promise<Paginated<Instrument>> {
     const term = query.trim();
     if (!term) {
-      return [];
+      return { data: [], total: 0, page, limit };
     }
 
-    return this.instrumentRepository
+    const [data, total] = await this.instrumentRepository
       .createQueryBuilder('instrument')
       .where('instrument.type != :moneda', { moneda: InstrumentType.MONEDA })
       .andWhere(
@@ -45,7 +50,10 @@ export class InstrumentsService {
         END`,
       )
       .addOrderBy('instrument.ticker', 'ASC')
-      .take(MAX_RESULTS)
-      .getMany();
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return { data, total, page, limit };
   }
 }

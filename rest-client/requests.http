@@ -20,8 +20,14 @@ GET {{baseUrl}}/instruments/search?q=gal
 ### Búsqueda de instrumentos por nombre
 GET {{baseUrl}}/instruments/search?q=banco
 
+### Búsqueda paginada: página 2, 5 resultados por página
+GET {{baseUrl}}/instruments/search?q=a&page=2&limit=5
+
 ### Búsqueda sin resultados
 GET {{baseUrl}}/instruments/search?q=zzzz
+
+### limit fuera de rango -> 400
+GET {{baseUrl}}/instruments/search?q=a&limit=101
 
 ###
 
