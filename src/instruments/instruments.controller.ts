@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Instrument } from '../database/entities/instrument.entity';
+import { InstrumentResponseDto } from './dto/instrument-response.dto';
 import { SearchInstrumentsDto } from './dto/search-instruments.dto';
 import { InstrumentsService } from './instruments.service';
 
@@ -14,9 +14,12 @@ export class InstrumentsController {
   @ApiResponse({
     status: 200,
     description: 'Listado de instrumentos que matchean (excluye MONEDA)',
+    type: [InstrumentResponseDto],
   })
   @ApiResponse({ status: 400, description: 'Falta el query param "q"' })
-  search(@Query() { q }: SearchInstrumentsDto): Promise<Instrument[]> {
+  search(
+    @Query() { q }: SearchInstrumentsDto,
+  ): Promise<InstrumentResponseDto[]> {
     return this.instrumentsService.search(q);
   }
 }
