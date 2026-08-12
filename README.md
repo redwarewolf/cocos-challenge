@@ -8,6 +8,8 @@ consulta de portfolio, búsqueda de instrumentos y envío de órdenes al mercado
 
 - Node.js 20+ (probado con Node 22)
 - Acceso a la base PostgreSQL provista por Cocos (Neon)
+- Docker corriendo (solo para `npm run test:e2e` — levanta un Postgres descartable vía
+  Testcontainers; no hace falta para `npm run start:dev` ni para `npm test`)
 
 ## Setup
 
@@ -124,10 +126,11 @@ envuelve la lectura del disponible + el insert de la orden en una transacción c
 órdenes de un mismo usuario (cualquier instrumento, BUY o SELL) sin bloquear a otros usuarios entre
 sí. No hace falta lockear entre usuarios distintos ni "emparejar" compra con venta: el challenge
 aclara que no hace falta simular el mercado, así que cada orden se ejecuta unilateralmente contra
-`marketdata.close` (liquidez asumida infinita), no contra la orden de otro usuario. Verificado
-manualmente contra la base real disparando pares de órdenes concurrentes (2 BUY y 2 SELL) que
-individualmente entraban en el disponible pero juntas no: en ambos casos una queda `FILLED` y la
-otra `REJECTED`, sin que el disponible/tenencia queden nunca negativos.
+`marketdata.close` (liquidez asumida infinita), no contra la orden de otro usuario. Verificado tanto
+a mano contra la base real como con un test e2e automatizado (`test/app.e2e-spec.ts`, describe
+"Concurrencia real") que dispara pares de órdenes concurrentes (2 BUY y 2 SELL) contra un Postgres
+real de Testcontainers, individualmente dentro del disponible pero juntas no: en ambos casos una
+queda `FILLED` y la otra `REJECTED`, sin que el disponible/tenencia queden nunca negativos.
 
 **Precisión numérica**: `price`/`close` viajan como `string` desde `pg` (Postgres `numeric`) para no
 perder precisión al parsear; los cálculos intermedios se hacen con `Number` en JS. Para un dominio
@@ -141,16 +144,40 @@ exacto antes que coincidencias parciales en nombres.
 ## Testing
 
 ```bash
-npm test
+npm test          # unit tests (rápidos, sin red/DB)
+npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado)
+npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-`src/orders/orders.service.spec.ts` es el test funcional pedido por el challenge sobre el envío de
-órdenes: cubre MARKET/LIMIT, cálculo de `size` desde `amount`, rechazo por fondos/tenencia
-insuficientes, validaciones de input, cancelación, y que el advisory lock se pida (con el `userId`
-correcto) antes de leer el disponible. Usa repositorios en memoria (no pega contra la red/DB), para
-que corra rápido y de forma determinística sin depender de la base compartida — la serialización
-real del lock bajo concurrencia se verificó aparte, a mano, contra la base real (ver sección
-"Concurrencia" arriba).
+**Unit tests** (`src/**/*.spec.ts`, 43 tests): uno por servicio (`OrdersService`, `ValuationService`,
+`PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
+repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
+compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
+controller solo verifican la delegación (que llaman al método del service correcto con los
+argumentos correctos); la lógica de negocio real vive y se testea en los services.
+`orders.service.spec.ts` es el test funcional que pide el challenge sobre el envío de órdenes: cubre
+MARKET/LIMIT, cálculo de `size` desde `amount`, rechazo por fondos/tenencia insuficientes,
+validaciones de input, cancelación, y que el advisory lock se pida (con el `userId` correcto) antes
+de leer el disponible. `collectCoverageFrom` (en `package.json`) excluye a propósito `*.module.ts`,
+`main.ts`, `data-source.ts`, `database/migrations/**`, `database/entities/**` y `**/dto/**`: son
+archivos declarativos (decorators de Nest/TypeORM/class-validator, wiring de DI, SQL de migración),
+sin ramas ni cómputo que un unit test pueda ejercitar de forma significativa — están cubiertos igual,
+pero por los e2e (que sí bootean la app entera) o, en el caso de la migración, por haberla corrido
+contra la DB real. Con esa exclusión, `npm run test:cov` reporta cobertura solo de `services` y
+`controllers` (la lógica real): 98.65% statements / 82.44% branches / 100% functions / 98.5% lines,
+con un `coverageThreshold` en `package.json` un poco por debajo de eso para detectar regresiones sin
+ser un número arbitrario.
+
+**E2E tests** (`test/app.e2e-spec.ts`, 24 tests): levantan un Postgres real y descartable con
+[Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts` +
+`test/setup/schema.sql`, mismo esquema que `database.sql` con un seed propio y determinístico), y
+corren la app de punta a punta (HTTP → controller → service → DB) contra los 4 endpoints, incluyendo
+los dos escenarios de concurrencia real (ver "Concurrencia" arriba). Nunca tocan la base de Cocos: el
+container se crea y se destruye en cada corrida. Para que esto funcione, `TypeOrmModule` pasó de
+`forRoot(dataSourceOptions)` a `forRootAsync({ useFactory: buildDataSourceOptions })`
+(`src/database/data-source.ts`) — la conexión se resuelve recién cuando Nest bootea la app, no al
+importar el módulo, así el test puede pisar `DATABASE_URL`/`DB_SSL` *antes* de ese momento. En
+dev/prod normal el comportamiento no cambia.
 
 ## Estructura
 
@@ -160,9 +187,12 @@ src/
     entities/      # User, Instrument, Order, MarketData — mapeadas 1:1 a las columnas reales
     migrations/     # índices aditivos
     data-source.ts  # DataSource compartido (Nest + CLI de migraciones)
-  valuation/        # ValuationService: cash disponible + posiciones (compartido)
-  portfolio/        # GET /portfolio/:userId
-  instruments/      # GET /instruments/search
-  orders/           # POST /orders, PATCH /orders/:id/cancel
+  valuation/        # ValuationService: cash disponible + posiciones (compartido) + .spec
+  portfolio/        # GET /portfolio/:userId + .spec
+  instruments/      # GET /instruments/search + .spec
+  orders/           # POST /orders, PATCH /orders/:id/cancel + .spec
+test/
+  app.e2e-spec.ts   # e2e de los 4 endpoints contra Postgres real (Testcontainers)
+  setup/            # helper que levanta/destruye el container + schema.sql (esquema + seed de test)
 rest-client/requests.http
 ```

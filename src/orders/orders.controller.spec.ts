@@ -1,0 +1,49 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { OrderSide, OrderType } from '../database/entities/order.entity';
+import { CreateOrderDto } from './dto/create-order.dto';
+import { OrdersController } from './orders.controller';
+import { OrdersService } from './orders.service';
+
+describe('OrdersController', () => {
+  let controller: OrdersController;
+
+  const ordersService = { create: jest.fn(), cancel: jest.fn() };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [OrdersController],
+      providers: [{ provide: OrdersService, useValue: ordersService }],
+    }).compile();
+
+    controller = module.get(OrdersController);
+  });
+
+  it('create() delega en OrdersService.create() con el DTO recibido', async () => {
+    const dto: CreateOrderDto = {
+      userId: 1,
+      instrumentId: 34,
+      side: OrderSide.BUY,
+      type: OrderType.MARKET,
+      size: 10,
+    };
+    const created = { id: 1, ...dto, status: 'FILLED' };
+    ordersService.create.mockResolvedValue(created);
+
+    const result = await controller.create(dto);
+
+    expect(ordersService.create).toHaveBeenCalledWith(dto);
+    expect(result).toBe(created);
+  });
+
+  it('cancel() delega en OrdersService.cancel() con el id parseado', async () => {
+    const cancelled = { id: 5, status: 'CANCELLED' };
+    ordersService.cancel.mockResolvedValue(cancelled);
+
+    const result = await controller.cancel(5);
+
+    expect(ordersService.cancel).toHaveBeenCalledWith(5);
+    expect(result).toBe(cancelled);
+  });
+});
