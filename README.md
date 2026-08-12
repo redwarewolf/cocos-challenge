@@ -204,3 +204,8 @@ test/
   setup/            # helper que levanta/destruye el container + schema.sql (esquema + seed de test)
 rest-client/requests.http
 ```
+
+## Contribuir
+
+Convención de ramas/commits/PRs en [CONTRIBUTING.md](CONTRIBUTING.md). `main` tiene branch
+protection: todo pasa por PR y requiere el check de CI en verde.
