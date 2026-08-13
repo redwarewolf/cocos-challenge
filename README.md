@@ -101,16 +101,23 @@ Ver `rest-client/requests.http` para una colección completa de ejemplos ejecuta
 
 ## Decisiones de diseño y asunciones
 
-**Esquema de base de datos**: se mantiene tal cual (no se modificó ninguna tabla ni columna). El
-único cambio aplicado es una migración aditiva de TypeORM (`src/database/migrations`) que agrega
-3 índices no destructivos para acelerar las queries de disponible/posiciones/último precio, que se
-ejecutan en cada request de portfolio y de envío de orden:
-- `orders (userid, status)`
-- `orders (instrumentid, status)`
-- `marketdata (instrumentid, date DESC)`
+**Esquema de base de datos**: se mantiene tal cual (no se modificó ninguna tabla ni columna
+existente). `src/database/migrations` es la única fuente de verdad del esquema, con dos migraciones:
+- `InitialSchema`: versiona el `CREATE TABLE` que Cocos ya corrió en la Neon real (con
+  `IF NOT EXISTS`, así que ahí es un no-op — documenta el esquema, no lo recrea). Se agregó para que
+  las migraciones sean autosuficientes: antes, correr `migration:run` contra un Postgres vacío
+  fallaba porque asumían que las tablas ya existían. Su `down()` rechaza correr a propósito (un
+  `DROP TABLE` automático sobre la base real de Cocos sería catastrófico).
+- `AddPerformanceIndexes`: migración aditiva que agrega 3 índices no destructivos para acelerar las
+  queries de disponible/posiciones/último precio, que se ejecutan en cada request de portfolio y de
+  envío de orden: `orders (userid, status)`, `orders (instrumentid, status)`,
+  `marketdata (instrumentid, date DESC)`.
 
-Se corre con `npm run migration:run`. `TypeOrmModule` se configura con `synchronize: false`
-explícitamente para que el ORM nunca intente alterar el esquema por su cuenta.
+Se corren con `npm run migration:run`. `TypeOrmModule` se configura con `synchronize: false`
+explícitamente para que el ORM nunca intente alterar el esquema por su cuenta. Los e2e corren estas
+mismas migraciones contra el Postgres efímero de Testcontainers (en vez de un `schema.sql` mantenido
+a mano, que existió brevemente y se sacó) — de yapa, esto prueba que las migraciones realmente
+construyen un esquema funcional desde cero, no solo que funcionan encima de lo que Cocos ya armó.
 
 **Cash disponible**: se calcula sumando todos los movimientos `FILLED` del usuario en la tabla
 `orders` — `CASH_IN`/`SELL` suman, `CASH_OUT`/`BUY` restan (todos ponderados por `size * price`).
@@ -230,9 +237,10 @@ con un `coverageThreshold` en `package.json` un poco por debajo de eso para dete
 ser un número arbitrario.
 
 **E2E tests** (`test/app.e2e-spec.ts`, 43 tests): levantan un Postgres real y descartable con
-[Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts` +
-`test/setup/schema.sql`, mismo esquema que `database.sql` con un seed propio y determinístico), y
-corren la app de punta a punta (HTTP → controller → service → DB) contra los 4 endpoints, incluyendo
+[Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts`), le corren las
+migraciones reales del proyecto (no un esquema hardcodeado — issue #27) y cargan
+`test/setup/seed.sql` (seed propio y determinístico, no el de Cocos), y corren la app de punta a
+punta (HTTP → controller → service → DB) contra los 4 endpoints, incluyendo
 los dos escenarios de concurrencia real (ver "Concurrencia" arriba). Nunca tocan la base de Cocos: el
 container se crea y se destruye en cada corrida. Para que esto funcione, `TypeOrmModule` pasó de
 `forRoot(dataSourceOptions)` a `forRootAsync({ useFactory: buildDataSourceOptions })`
@@ -254,7 +262,7 @@ src/
   common/dto/       # PaginationQueryDto + PaginatedResponseDto (compartidos entre endpoints)
   database/
     entities/      # User, Instrument, Order, MarketData — mapeadas 1:1 a las columnas reales
-    migrations/     # índices aditivos
+    migrations/     # única fuente de verdad del esquema: InitialSchema + índices aditivos
     data-source.ts  # DataSource compartido (Nest + CLI de migraciones)
   valuation/        # ValuationService: cash disponible + posiciones (compartido) + .spec
   portfolio/        # GET /portfolio/:userId + .spec
@@ -263,7 +271,7 @@ src/
   health/           # GET /health (readiness: pinguea la DB) + .spec
 test/
   app.e2e-spec.ts   # e2e de los 4 endpoints contra Postgres real (Testcontainers)
-  setup/            # helper que levanta/destruye el container + schema.sql (esquema + seed de test)
+  setup/            # helper que levanta el container, corre las migraciones + seed.sql (seed de test)
 rest-client/requests.http
 ```
 
