@@ -63,4 +63,18 @@ export class Order {
 
   @Column({ type: 'timestamp' })
   datetime: Date;
+
+  /**
+   * Header `Idempotency-Key` opcional (issue #8): si un cliente reintenta un POST con
+   * la misma key, se devuelve esta fila en vez de crear una orden duplicada. Columna
+   * agregada vía migración aditiva, no forma parte del esquema original de Cocos.
+   */
+  @Column({
+    name: 'idempotencykey',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    unique: true,
+  })
+  idempotencyKey: string | null;
 }

@@ -619,4 +619,104 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       ).toHaveLength(0);
     });
   });
+
+  describe('Idempotency-Key (issue #8, corre al final para no interferir con los totales de arriba)', () => {
+    it('reintento secuencial con la misma key en POST /orders/cash devuelve la misma orden, sin duplicarla en la DB', async () => {
+      const key = 'e2e-cash-key-1';
+      const first = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .set('Idempotency-Key', key)
+        .send({ userId: 2, side: 'CASH_IN', amount: 1234 });
+
+      expect(first.status).toBe(201);
+      expect(first.body.status).toBe('FILLED');
+      expect(first.body.idempotencyKey).toBe(key);
+
+      const second = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .set('Idempotency-Key', key)
+        .send({ userId: 2, side: 'CASH_IN', amount: 1234 });
+
+      expect(second.status).toBe(201);
+      expect(second.body.id).toBe(first.body.id);
+
+      const history = await request(app.getHttpServer())
+        .get('/orders')
+        .query({ userId: 2, limit: 100 });
+      const matching = history.body.data.filter(
+        (o: { id: number }) => o.id === first.body.id,
+      );
+      expect(matching).toHaveLength(1);
+    });
+
+    it('sin Idempotency-Key, cada request crea una orden nueva (aunque el body sea idéntico)', async () => {
+      const a = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .send({ userId: 2, side: 'CASH_IN', amount: 1 });
+      const b = await request(app.getHttpServer())
+        .post('/orders/cash')
+        .send({ userId: 2, side: 'CASH_IN', amount: 1 });
+
+      expect(a.status).toBe(201);
+      expect(b.status).toBe(201);
+      expect(a.body.id).not.toBe(b.body.id);
+    });
+
+    it('dos requests concurrentes con la misma key: los dos responden 201 con la misma orden, sin duplicar en la DB', async () => {
+      const key = 'e2e-concurrent-key';
+
+      const [a, b] = await Promise.all([
+        request(app.getHttpServer())
+          .post('/orders/cash')
+          .set('Idempotency-Key', key)
+          .send({ userId: 2, side: 'CASH_IN', amount: 777 }),
+        request(app.getHttpServer())
+          .post('/orders/cash')
+          .set('Idempotency-Key', key)
+          .send({ userId: 2, side: 'CASH_IN', amount: 777 }),
+      ]);
+
+      expect(a.status).toBe(201);
+      expect(b.status).toBe(201);
+      expect(a.body.id).toBe(b.body.id);
+
+      const history = await request(app.getHttpServer())
+        .get('/orders')
+        .query({ userId: 2, limit: 100 });
+      const matching = history.body.data.filter(
+        (o: { id: number }) => o.id === a.body.id,
+      );
+      expect(matching).toHaveLength(1);
+    });
+
+    it('POST /orders (compra/venta) también respeta la Idempotency-Key', async () => {
+      const key = 'e2e-orders-key-1';
+
+      const first = await request(app.getHttpServer())
+        .post('/orders')
+        .set('Idempotency-Key', key)
+        .send({
+          userId: 1,
+          instrumentId: 2,
+          side: 'BUY',
+          type: 'MARKET',
+          size: 1,
+        });
+
+      const second = await request(app.getHttpServer())
+        .post('/orders')
+        .set('Idempotency-Key', key)
+        .send({
+          userId: 1,
+          instrumentId: 2,
+          side: 'BUY',
+          type: 'MARKET',
+          size: 1,
+        });
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(second.body.id).toBe(first.body.id);
+    });
+  });
 });
