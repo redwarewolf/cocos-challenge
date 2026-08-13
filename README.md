@@ -8,10 +8,12 @@ consulta de portfolio, búsqueda de instrumentos y envío de órdenes al mercado
 
 ## Requisitos
 
-- Node.js 20+ (probado con Node 22)
-- Acceso a la base PostgreSQL provista por Cocos (Neon)
-- Docker corriendo (solo para `npm run test:e2e` — levanta un Postgres descartable vía
-  Testcontainers; no hace falta para `npm run start:dev` ni para `npm test`)
+- Acceso a la base PostgreSQL provista por Cocos (Neon) — la única dependencia externa real,
+  con o sin Docker.
+- Opción A: Node.js 20+ (probado con Node 22).
+- Opción B: Docker (para no necesitar Node instalado localmente). También hace falta Docker
+  corriendo para `npm run test:e2e` en la opción A — levanta un Postgres descartable vía
+  Testcontainers; no hace falta para `npm run start:dev` ni para `npm test`.
 
 ## Setup
 
@@ -21,8 +23,17 @@ cp .env.example .env   # completar DATABASE_URL con la connection string real
 npm run start:dev
 ```
 
-La API queda escuchando en `http://localhost:3000` (configurable con `PORT`). Documentación
-interactiva (Swagger UI) en `http://localhost:3000/docs`, JSON crudo (OpenAPI) en `/docs-json`.
+Alternativa con Docker, sin necesitar Node instalado (la DB sigue siendo la Neon remota; el
+contenedor solo corre la API):
+
+```bash
+cp .env.example .env   # completar DATABASE_URL con la connection string real
+docker compose up --build
+```
+
+La API queda escuchando en `http://localhost:3000` (configurable con `PORT`, en ambas opciones).
+Documentación interactiva (Swagger UI) en `http://localhost:3000/docs`, JSON crudo (OpenAPI) en
+`/docs-json`.
 
 ## Endpoints
 
@@ -304,10 +315,20 @@ dev/prod normal el comportamiento no cambia.
 el runner de GitHub Actions ya trae Docker) y el build de producción. No necesita ningún secret: el
 e2e resuelve su propia base efímera, nunca la de Cocos.
 
+**Docker** (`Dockerfile`, `docker-compose.yml`): pensado solo para no depender de tener Node
+instalado — la base sigue siendo la Neon remota, así que el `docker-compose.yml` no levanta
+ningún Postgres, solo la API (lee `DATABASE_URL` de `.env` vía `env_file`). El `Dockerfile` es
+multi-stage: una etapa `build` con las devDependencies para compilar (`nest build`), y una
+etapa `runtime` liviana que solo instala dependencias de producción (`npm ci --omit=dev`) y
+copia el `dist/` ya compilado — la imagen final no incluye el código TypeScript ni el toolchain
+de build.
+
 ## Estructura
 
 ```
 .github/workflows/ci.yml  # lint + type-check + unit + e2e + build en cada push/PR a main
+Dockerfile                 # multi-stage: build (nest build) + runtime (solo prod deps + dist)
+docker-compose.yml         # levanta solo la API, leyendo DATABASE_URL de .env (la DB es la Neon remota)
 src/
   config/config.ts  # todas las env vars del proyecto, en un solo lugar + .spec
   common/dto/       # PaginationQueryDto + PaginatedResponseDto (compartidos entre endpoints)
