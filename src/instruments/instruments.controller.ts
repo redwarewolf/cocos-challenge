@@ -4,6 +4,7 @@ import {
   Paginated,
   PaginatedResponseDto,
 } from '../common/dto/paginated-response.dto';
+import { PAGE_SIZE } from '../common/pagination.constants';
 import { InstrumentResponseDto } from './dto/instrument-response.dto';
 import { SearchInstrumentsDto } from './dto/search-instruments.dto';
 import { InstrumentsService } from './instruments.service';
@@ -29,6 +30,6 @@ export class InstrumentsController {
   search(
     @Query() { q, page, limit }: SearchInstrumentsDto,
   ): Promise<Paginated<InstrumentResponseDto>> {
-    return this.instrumentsService.search(q, page ?? 1, limit ?? 20);
+    return this.instrumentsService.search(q, page ?? 1, limit ?? PAGE_SIZE);
   }
 }

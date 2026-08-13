@@ -41,6 +41,7 @@ describe('OrdersService (functional: envío de órdenes)', () => {
         Promise.resolve({ id: 100, ...order }) as Promise<Order>,
     ),
     findOne: jest.fn(),
+    findAndCount: jest.fn(),
   };
   const valuationService = {
     getLastClose: jest.fn(),
@@ -341,6 +342,77 @@ describe('OrdersService (functional: envío de órdenes)', () => {
           amount: 1000,
         }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findAll', () => {
+    it('lanza 404 si el usuario no existe', async () => {
+      userRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.findAll({ userId: 999 })).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('filtra solo por userId cuando no se manda status', async () => {
+      orderRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({ userId: 1 });
+
+      expect(orderRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 1 } }),
+      );
+    });
+
+    it('agrega el filtro de status cuando se manda', async () => {
+      orderRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({ userId: 1, status: OrderStatus.REJECTED });
+
+      expect(orderRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 1, status: OrderStatus.REJECTED },
+        }),
+      );
+    });
+
+    it('ordena por datetime descendente (más reciente primero)', async () => {
+      orderRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({ userId: 1 });
+
+      expect(orderRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ order: { datetime: 'DESC' } }),
+      );
+    });
+
+    it('usa page=1 y limit=20 por default si no vienen en el query', async () => {
+      orderRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({ userId: 1 });
+
+      expect(orderRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0, take: 20 }),
+      );
+    });
+
+    it('calcula skip/take a partir de page/limit', async () => {
+      orderRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({ userId: 1, page: 3, limit: 10 });
+
+      expect(orderRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 20, take: 10 }),
+      );
+    });
+
+    it('devuelve data/total desde findAndCount(), junto con page y limit', async () => {
+      const orders = [{ id: 1 } as Order, { id: 2 } as Order];
+      orderRepository.findAndCount.mockResolvedValue([orders, 15]);
+
+      const result = await service.findAll({ userId: 1, page: 2, limit: 2 });
+
+      expect(result).toEqual({ data: orders, total: 15, page: 2, limit: 2 });
     });
   });
 

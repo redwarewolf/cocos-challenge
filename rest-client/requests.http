@@ -145,3 +145,17 @@ Content-Type: application/json
   "type": "MARKET",
   "size": 5
 }
+
+###
+
+### 6) (Bonus) Historial de órdenes del usuario 1, más recientes primero
+GET {{baseUrl}}/orders?userId=1
+
+### Historial filtrado por status
+GET {{baseUrl}}/orders?userId=1&status=FILLED
+
+### Historial paginado
+GET {{baseUrl}}/orders?userId=1&page=2&limit=5
+
+### Sin userId -> 400
+GET {{baseUrl}}/orders

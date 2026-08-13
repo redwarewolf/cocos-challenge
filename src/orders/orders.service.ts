@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { Paginated } from '../common/dto/paginated-response.dto';
+import { PAGE_SIZE } from '../common/pagination.constants';
 import {
   Instrument,
   InstrumentType,
@@ -19,6 +21,7 @@ import { User } from '../database/entities/user.entity';
 import { ValuationService } from '../valuation/valuation.service';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 
 @Injectable()
 export class OrdersService {
@@ -114,6 +117,35 @@ export class OrdersService {
         status,
       });
     });
+  }
+
+  /** Historial de órdenes/movimientos de un usuario, más recientes primero. */
+  async findAll(query: ListOrdersQueryDto): Promise<Paginated<Order>> {
+    const user = await this.userRepository.findOne({
+      where: { id: query.userId },
+    });
+    if (!user) {
+      throw new NotFoundException(`User ${query.userId} not found`);
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? PAGE_SIZE;
+
+    const where: { userId: number; status?: OrderStatus } = {
+      userId: query.userId,
+    };
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    const [data, total] = await this.orderRepository.findAndCount({
+      where,
+      order: { datetime: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return { data, total, page, limit };
   }
 
   async cancel(orderId: number): Promise<Order> {
