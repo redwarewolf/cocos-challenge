@@ -43,7 +43,7 @@ Healthcheck de _readiness_, no solo liveness: pinguea la conexión real a la DB 
 `TypeOrmHealthIndicator`), que es la única dependencia externa de esta API. `200` si la DB responde,
 `503` si no.
 
-### `GET /portfolio/:userId`
+### `GET /v1/portfolio/:userId`
 
 Valor total de cuenta, pesos disponibles y posiciones del usuario.
 
@@ -66,7 +66,7 @@ Valor total de cuenta, pesos disponibles y posiciones del usuario.
 }
 ```
 
-### `GET /instruments/search?q=<texto>&page=&limit=`
+### `GET /v1/instruments/search?q=<texto>&page=&limit=`
 
 Busca por ticker y/o nombre (case-insensitive, substring). Excluye el instrumento `MONEDA` (ARS).
 Paginado: `page` (default 1) y `limit` (default 20, máximo 100). Respuesta:
@@ -87,7 +87,7 @@ Paginado: `page` (default 1) y `limit` (default 20, máximo 100). Respuesta:
 }
 ```
 
-### `POST /orders`
+### `POST /v1/orders`
 
 Envía una orden `BUY`/`SELL`, `MARKET`/`LIMIT`.
 
@@ -105,7 +105,7 @@ También acepta `"amount": 5000` en pesos en lugar de `size` (se calcula la cant
 acciones enteras que ese monto permite comprar al precio resuelto).
 Para `LIMIT` es obligatorio enviar `"price"`; para `MARKET` se ignora (se usa el último `close`).
 
-### `POST /orders/cash` (bonus, no pedido explícitamente por el challenge)
+### `POST /v1/orders/cash` (bonus, no pedido explícitamente por el challenge)
 
 Deposita (`CASH_IN`) o retira (`CASH_OUT`) pesos de la cuenta de un usuario — útil para fondear
 usuarios de prueba sin tocar la base directamente (en el seed original solo el usuario 1 tiene cash).
@@ -117,19 +117,19 @@ usuarios de prueba sin tocar la base directamente (en el seed original solo el u
 `CASH_IN` siempre se llena; `CASH_OUT` queda `REJECTED` si no hay disponible suficiente (mismo
 criterio que un `SELL`). `amount` es un entero en pesos (misma convención que `size`).
 
-### `GET /orders?userId=&status=&page=&limit=` (bonus, no pedido explícitamente por el challenge)
+### `GET /v1/orders?userId=&status=&page=&limit=` (bonus, no pedido explícitamente por el challenge)
 
 Historial de órdenes/movimientos de un usuario, más recientes primero. `userId` obligatorio,
 `status` opcional (`NEW|FILLED|REJECTED|CANCELLED`), mismo paginado (`page`/`limit`) y mismo
-envelope de respuesta que `GET /instruments/search`.
+envelope de respuesta que `GET /v1/instruments/search`.
 
-### `PATCH /orders/:id/cancel` (bonus, no pedido explícitamente por el challenge)
+### `PATCH /v1/orders/:id/cancel` (bonus, no pedido explícitamente por el challenge)
 
 Cancela una orden en estado `NEW`. Cualquier otro estado responde `400`.
 
 ### Header `Idempotency-Key` (bonus, no pedido explícitamente por el challenge)
 
-`POST /orders` y `POST /orders/cash` aceptan un header opcional `Idempotency-Key`. Si un
+`POST /v1/orders` y `POST /v1/orders/cash` aceptan un header opcional `Idempotency-Key`. Si un
 cliente reintenta el mismo request (ej. por timeout de red sin haber recibido la respuesta
 original) mandando la misma key, la API devuelve la orden ya creada en vez de duplicarla —
 incluso si dos requests con la misma key llegan casi al mismo tiempo (ver detalle en
@@ -181,14 +181,14 @@ hardcodea su `id`.
 - `totalAccountValue = availableCash + Σ marketValue`.
 
 Esta lógica vive en un único `ValuationService` (`src/valuation`), reutilizado tanto por
-`GET /portfolio/:userId` como por la validación de fondos/tenencia al crear una orden, para no
+`GET /v1/portfolio/:userId` como por la validación de fondos/tenencia al crear una orden, para no
 duplicar el cálculo de "disponible" en dos lugares.
 
 **Envío de órdenes**:
 
-- `POST /orders` solo expone `BUY`/`SELL` — el enunciado de este endpoint pide explícitamente "una
+- `POST /v1/orders` solo expone `BUY`/`SELL` — el enunciado de este endpoint pide explícitamente "una
   orden de compra o venta", así que `CASH_IN`/`CASH_OUT` viven en un endpoint aparte
-  (`POST /orders/cash`, ver arriba) en vez de sobrecargar el mismo DTO con campos que no aplican a
+  (`POST /v1/orders/cash`, ver arriba) en vez de sobrecargar el mismo DTO con campos que no aplican a
   un movimiento de cash (no hay `price`/`type` MARKET-LIMIT que tenga sentido ahí).
 - `size` y `amount` son mutuamente excluyentes; si se envía `amount`, `size = floor(amount / price)`
   y se rechaza (400) si da 0 (no se admiten fracciones de acciones).
@@ -218,7 +218,7 @@ otro usuario. Verificado tanto a mano contra la base real como con un test e2e a
 disponible pero juntos no: en los tres casos uno queda `FILLED` y el otro `REJECTED`, sin que el
 disponible/tenencia queden nunca negativos.
 
-**Idempotencia** (`POST /orders` / `POST /orders/cash`, header `Idempotency-Key`): se agregó una
+**Idempotencia** (`POST /v1/orders` / `POST /v1/orders/cash`, header `Idempotency-Key`): se agregó una
 columna `idempotencykey` en `orders`, nullable y `UNIQUE` (migración aditiva
 `AddOrdersIdempotencyKey`), en vez de una tabla aparte de claves de idempotencia — con un solo campo
 extra alcanza para el alcance de este challenge, y la propia constraint `UNIQUE` de Postgres resuelve
@@ -265,7 +265,7 @@ exacto antes que coincidencias parciales en nombres.
 para el volumen de un mercado real (miles de instrumentos u órdenes, no millones) alcanza y es más
 simple de consumir. El envelope `{ data, total, page, limit }` y el
 `PaginationQueryDto`/`PaginatedResponseDto` (factory de Swagger, `src/common/dto/`) se comparten
-entre `GET /instruments/search` y `GET /orders`, así que agregar un tercer endpoint paginado no
+entre `GET /v1/instruments/search` y `GET /v1/orders`, así que agregar un tercer endpoint paginado no
 requeriría reinventar el esquema de respuesta. El tamaño de página default es configurable por
 entorno (`PAGE_SIZE`, ver `.env.example`; default 20 si no se define); el máximo permitido por
 request queda fijo en 100 (no es una env var, es solo una protección básica).
@@ -379,6 +379,18 @@ multi-stage: una etapa `build` con las devDependencies para compilar (`nest buil
 etapa `runtime` liviana que solo instala dependencias de producción (`npm ci --omit=dev`) y
 copia el `dist/` ya compilado — la imagen final no incluye el código TypeScript ni el toolchain
 de build.
+
+**Versionado de rutas** (issue #34): todas las rutas quedan bajo `/v1/...`
+(`app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' })` en `main.ts`), salvo
+`GET /health`, que declara `@Controller({ path: 'health', version: VERSION_NEUTRAL })` — un
+healthcheck no debería depender de qué versión de la API se le pida. `/docs`/`/docs-json` tampoco
+llevan prefijo: `SwaggerModule` los monta aparte, no como rutas de un controller sujetas al
+versionado. No se versiona "por las dudas": no hay clientes reales todavía dependiendo del contrato,
+pero tener la infraestructura lista de entrada evita migrar retroactivamente todas las rutas el día
+que un cambio incompatible necesite convivir con clientes existentes (`/v1/...` viejo +
+`/v2/...` nuevo). El `TestingModule` de los e2e (`test/app.e2e-spec.ts`) no corre `bootstrap()` de
+`main.ts`, así que repite `enableVersioning()` ahí también — mismo motivo por el que ya repetía el
+`ValidationPipe` y el registro de Swagger.
 
 **Colección Postman + Newman** (issue #5, `postman/`): el challenge pide explícitamente "una
 colección de Postman, Insomnia o REST Client" — se optó por Postman, con verificación automática.
