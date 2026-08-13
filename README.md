@@ -86,6 +86,12 @@ usuarios de prueba sin tocar la base directamente (en el seed original solo el u
 `CASH_IN` siempre se llena; `CASH_OUT` queda `REJECTED` si no hay disponible suficiente (mismo
 criterio que un `SELL`). `amount` es un entero en pesos (misma convención que `size`).
 
+### `GET /orders?userId=&status=&page=&limit=` (bonus, no pedido explícitamente por el challenge)
+
+Historial de órdenes/movimientos de un usuario, más recientes primero. `userId` obligatorio,
+`status` opcional (`NEW|FILLED|REJECTED|CANCELLED`), mismo paginado (`page`/`limit`) y mismo
+envelope de respuesta que `GET /instruments/search`.
+
 ### `PATCH /orders/:id/cancel` (bonus, no pedido explícitamente por el challenge)
 
 Cancela una orden en estado `NEW`. Cualquier otro estado responde `400`.
@@ -168,11 +174,12 @@ alcance de este challenge (montos en pesos con 2 decimales) no se justificó la 
 luego el resto (contiene en ticker o nombre), para que buscar `"ggal"` devuelva primero el ticker
 exacto antes que coincidencias parciales en nombres.
 
-**Paginación**: offset-based (`page`/`limit`, `getManyAndCount()`), no por cursor — para el volumen
-de un mercado real (miles de instrumentos, no millones) alcanza y es más simple de consumir. El
-envelope `{ data, total, page, limit }` y el `PaginationQueryDto`/`PaginatedResponseDto` (factory de
-Swagger, `src/common/dto/`) están pensados para reutilizarse en el resto de los endpoints que se
-agreguen (ej. historial de órdenes), no solo en `GET /instruments/search`.
+**Paginación**: offset-based (`page`/`limit`, `getManyAndCount()`/`findAndCount()`), no por cursor —
+para el volumen de un mercado real (miles de instrumentos u órdenes, no millones) alcanza y es más
+simple de consumir. El envelope `{ data, total, page, limit }` y el
+`PaginationQueryDto`/`PaginatedResponseDto` (factory de Swagger, `src/common/dto/`) se comparten
+entre `GET /instruments/search` y `GET /orders`, así que agregar un tercer endpoint paginado no
+requeriría reinventar el esquema de respuesta.
 
 **Response DTOs**: `OrderResponseDto`, `InstrumentResponseDto`, `PortfolioResponseDto` (en cada
 módulo, carpeta `dto/`) documentan con `@ApiProperty` la forma real de cada respuesta para que
@@ -189,7 +196,7 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 52 tests): uno por servicio (`OrdersService`, `ValuationService`,
+**Unit tests** (`src/**/*.spec.ts`, 60 tests): uno por servicio (`OrdersService`, `ValuationService`,
 `PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
 repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
 compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
@@ -208,7 +215,7 @@ contra la DB real. Con esa exclusión, `npm run test:cov` reporta cobertura solo
 con un `coverageThreshold` en `package.json` un poco por debajo de eso para detectar regresiones sin
 ser un número arbitrario.
 
-**E2E tests** (`test/app.e2e-spec.ts`, 37 tests): levantan un Postgres real y descartable con
+**E2E tests** (`test/app.e2e-spec.ts`, 43 tests): levantan un Postgres real y descartable con
 [Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts` +
 `test/setup/schema.sql`, mismo esquema que `database.sql` con un seed propio y determinístico), y
 corren la app de punta a punta (HTTP → controller → service → DB) contra los 4 endpoints, incluyendo
@@ -229,6 +236,7 @@ e2e resuelve su propia base efímera, nunca la de Cocos.
 ```
 .github/workflows/ci.yml  # lint + type-check + unit + e2e + build en cada push/PR a main
 src/
+  common/dto/       # PaginationQueryDto + PaginatedResponseDto (compartidos entre endpoints)
   database/
     entities/      # User, Instrument, Order, MarketData — mapeadas 1:1 a las columnas reales
     migrations/     # índices aditivos
@@ -236,7 +244,7 @@ src/
   valuation/        # ValuationService: cash disponible + posiciones (compartido) + .spec
   portfolio/        # GET /portfolio/:userId + .spec
   instruments/      # GET /instruments/search + .spec
-  orders/           # POST /orders, POST /orders/cash, PATCH /orders/:id/cancel + .spec
+  orders/           # POST /orders, POST /orders/cash, GET /orders, PATCH /orders/:id/cancel + .spec
   health/           # GET /health (readiness: pinguea la DB) + .spec
 test/
   app.e2e-spec.ts   # e2e de los 4 endpoints contra Postgres real (Testcontainers)

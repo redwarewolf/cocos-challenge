@@ -11,6 +11,7 @@ describe('OrdersController', () => {
   const ordersService = {
     create: jest.fn(),
     createCashMovement: jest.fn(),
+    findAll: jest.fn(),
     cancel: jest.fn(),
   };
 
@@ -55,6 +56,16 @@ describe('OrdersController', () => {
 
     expect(ordersService.createCashMovement).toHaveBeenCalledWith(dto);
     expect(result).toBe(created);
+  });
+
+  it('findAll() delega en OrdersService.findAll() con el query recibido', async () => {
+    const page = { data: [], total: 0, page: 1, limit: 20 };
+    ordersService.findAll.mockResolvedValue(page);
+
+    const result = await controller.findAll({ userId: 1 });
+
+    expect(ordersService.findAll).toHaveBeenCalledWith({ userId: 1 });
+    expect(result).toBe(page);
   });
 
   it('cancel() delega en OrdersService.cancel() con el id parseado', async () => {

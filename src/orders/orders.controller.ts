@@ -1,14 +1,21 @@
 import {
   Body,
   Controller,
+  Get,
   Param,
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Paginated,
+  PaginatedResponseDto,
+} from '../common/dto/paginated-response.dto';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
 import { OrdersService } from './orders.service';
 
@@ -49,6 +56,27 @@ export class OrdersController {
     @Body() dto: CreateCashMovementDto,
   ): Promise<OrderResponseDto> {
     return this.ordersService.createCashMovement(dto);
+  }
+
+  @Get()
+  @ApiOperation({
+    summary:
+      'Historial de órdenes/movimientos de un usuario (más recientes primero)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Página del historial, opcionalmente filtrado por status',
+    type: PaginatedResponseDto(OrderResponseDto),
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Falta userId, o page/limit/status inválidos',
+  })
+  @ApiResponse({ status: 404, description: 'Usuario inexistente' })
+  findAll(
+    @Query() query: ListOrdersQueryDto,
+  ): Promise<Paginated<OrderResponseDto>> {
+    return this.ordersService.findAll(query);
   }
 
   @Patch(':id/cancel')

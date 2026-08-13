@@ -538,4 +538,85 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(after.body.availableCash).toBeGreaterThanOrEqual(0);
     });
   });
+
+  describe('GET /orders — historial paginado (corre al final, con todo lo generado por los tests anteriores)', () => {
+    it('404 si el usuario no existe', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/orders')
+        .query({ userId: 999 });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('400 si falta userId', async () => {
+      const res = await request(app.getHttpServer()).get('/orders');
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si status no es un valor válido', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/orders')
+        .query({ userId: 1, status: 'NOT_A_STATUS' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('devuelve solo órdenes del usuario pedido, ordenadas por datetime descendente', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/orders')
+        .query({ userId: 1, limit: 100 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      expect(res.body.total).toBe(res.body.data.length); // limit 100 alcanza para traer todo
+
+      for (const order of res.body.data) {
+        expect(order.userId).toBe(1);
+      }
+      const datetimes = res.body.data.map((o: { datetime: string }) =>
+        new Date(o.datetime).getTime(),
+      );
+      const sorted = [...datetimes].sort((a: number, b: number) => b - a);
+      expect(datetimes).toEqual(sorted);
+    });
+
+    it('filtra por status: todo lo que devuelve tiene ese status exacto', async () => {
+      // orden fresca y determinística en REJECTED, para no depender de que los tests
+      // anteriores hayan dejado alguna orden en ese estado.
+      await request(app.getHttpServer()).post('/orders').send({
+        userId: 1,
+        instrumentId: 2,
+        side: 'SELL',
+        type: 'MARKET',
+        size: 999999,
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/orders')
+        .query({ userId: 1, status: 'REJECTED', limit: 100 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      for (const order of res.body.data) {
+        expect(order.status).toBe('REJECTED');
+      }
+    });
+
+    it('pagina sin solapamiento entre páginas', async () => {
+      const page1 = await request(app.getHttpServer())
+        .get('/orders')
+        .query({ userId: 1, page: 1, limit: 3 });
+      const page2 = await request(app.getHttpServer())
+        .get('/orders')
+        .query({ userId: 1, page: 2, limit: 3 });
+
+      expect(page1.body.total).toBe(page2.body.total);
+      const idsPage1 = page1.body.data.map((o: { id: number }) => o.id);
+      const idsPage2 = page2.body.data.map((o: { id: number }) => o.id);
+      expect(
+        idsPage1.filter((id: number) => idsPage2.includes(id)),
+      ).toHaveLength(0);
+    });
+  });
 });
