@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
-import { MAX_PAGE_SIZE, PAGE_SIZE } from '../pagination.constants';
+import { MAX_PAGE_SIZE, PAGE_SIZE } from '../../config/config';
 
 /**
  * Query params de paginación compartidos entre endpoints (búsqueda de instrumentos,
