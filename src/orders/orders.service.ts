@@ -4,12 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import {
-  DataSource,
-  EntityManager,
-  QueryFailedError,
-  Repository,
-} from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Paginated } from '../common/dto/paginated-response.dto';
 import { PAGE_SIZE } from '../config/config';
 import {
@@ -27,9 +22,6 @@ import { ValuationService } from '../valuation/valuation.service';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
-
-/** SQLSTATE de Postgres para violación de constraint UNIQUE. */
-const POSTGRES_UNIQUE_VIOLATION = '23505';
 
 @Injectable()
 export class OrdersService {
@@ -188,15 +180,10 @@ export class OrdersService {
   /**
    * Idempotencia (issue #8): si viene `idempotencyKey`, se busca primero una orden ya
    * guardada con esa key — caso común, el cliente reintentó un POST después de un
-   * timeout sin haber recibido la respuesta original. Si no existe, se ejecuta `work`
-   * (bajo el advisory lock de siempre) y se guarda la orden con esa key.
-   *
-   * Caso raro (dos requests con la misma key llegando casi al mismo tiempo): las dos
-   * pueden pasar el chequeo inicial sin encontrar nada, pero al insertar, la constraint
-   * UNIQUE de `orders.idempotencykey` rechaza a la segunda — se la ataja acá afuera de
-   * la transacción (que ya hizo rollback solo) y se devuelve la fila que sí se guardó,
-   * en vez de propagar el error. No hace falta una tabla aparte para trackear el estado
-   * de la request: la propia constraint de Postgres resuelve la atomicidad.
+   * timeout sin haber recibido la respuesta original. Si existe, se devuelve
+   * directamente, sin tomar el lock ni recalcular nada. Si no existe, se ejecuta
+   * `work` bajo el advisory lock de siempre (ver `saveOrder` para cómo se resuelve
+   * la carrera rara de dos requests con la misma key llegando casi al mismo tiempo).
    */
   private async createWithIdempotency(
     idempotencyKey: string | undefined,
@@ -212,27 +199,7 @@ export class OrdersService {
       }
     }
 
-    try {
-      return await this.withUserLock(userId, work);
-    } catch (error) {
-      if (idempotencyKey && this.isUniqueViolation(error)) {
-        const existing = await this.orderRepository.findOne({
-          where: { idempotencyKey },
-        });
-        if (existing) {
-          return existing;
-        }
-      }
-      throw error;
-    }
-  }
-
-  private isUniqueViolation(error: unknown): boolean {
-    return (
-      error instanceof QueryFailedError &&
-      (error as QueryFailedError & { code?: string }).code ===
-        POSTGRES_UNIQUE_VIOLATION
-    );
+    return this.withUserLock(userId, work);
   }
 
   /**
@@ -254,7 +221,16 @@ export class OrdersService {
     });
   }
 
-  private saveOrder(
+  /**
+   * Sin `idempotencyKey`, un `save()` normal alcanza (nunca puede chocar contra la
+   * constraint UNIQUE, que ignora los `NULL`). Con `idempotencyKey`, se inserta con
+   * `ON CONFLICT DO NOTHING` (vía `.orIgnore()`) en vez de un `INSERT` liso: si dos
+   * requests con la misma key llegan casi al mismo tiempo, la que pierde la carrera
+   * no falla, simplemente no inserta nada. En ambos casos —ganamos o perdimos la
+   * carrera— la fila con esa key ya existe en la DB después del insert, así que un
+   * `findOne` la resuelve sin necesidad de inspeccionar códigos de error.
+   */
+  private async saveOrder(
     manager: EntityManager,
     data: Pick<
       Order,
@@ -269,8 +245,29 @@ export class OrdersService {
     >,
   ): Promise<Order> {
     const orderRepo = manager.getRepository(Order);
-    const order = orderRepo.create({ ...data, datetime: new Date() });
-    return orderRepo.save(order);
+    const withDatetime = { ...data, datetime: new Date() };
+
+    if (!data.idempotencyKey) {
+      return orderRepo.save(orderRepo.create(withDatetime));
+    }
+
+    await manager
+      .createQueryBuilder()
+      .insert()
+      .into(Order)
+      .values(withDatetime)
+      .orIgnore()
+      .execute();
+
+    const order = await orderRepo.findOne({
+      where: { idempotencyKey: data.idempotencyKey },
+    });
+    if (!order) {
+      throw new Error(
+        `No se pudo crear ni encontrar la orden con Idempotency-Key ${data.idempotencyKey}`,
+      );
+    }
+    return order;
   }
 
   private async resolvePrice(

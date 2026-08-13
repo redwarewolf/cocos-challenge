@@ -214,13 +214,14 @@ extra alcanza para el alcance de este challenge, y la propia constraint `UNIQUE`
 la atomicidad sin necesitar lógica de estado propia (dos `NULL` nunca "chocan" entre sí, así que no
 afecta a los requests sin key). Si viene la key, `OrdersService` primero busca una orden ya guardada
 con ese valor — caso común, el cliente reintentó tras un timeout sin recibir la respuesta original —
-y si existe la devuelve directamente, sin volver a ejecutar la orden. El caso más raro (dos requests
-con la misma key llegando casi al mismo tiempo) se ataja distinto: las dos pueden pasar el chequeo
-inicial sin encontrar nada, pero al guardar, la constraint `UNIQUE` rechaza a la segunda con un
-`QueryFailedError` (`SQLSTATE 23505`); en vez de propagar ese error, se lo interpreta como señal de
-"alguien más ya la creó" y se devuelve la fila que sí se guardó. Verificado con tests e2e (reintento
-secuencial, sin key, y dos requests concurrentes con la misma key) contra un Postgres real de
-Testcontainers, y a mano contra la Neon real.
+y si existe la devuelve directamente, sin volver a ejecutar la orden ni tomar el lock del usuario. El
+caso más raro (dos requests con la misma key llegando casi al mismo tiempo) se resuelve a nivel SQL,
+no con una excepción: el insert usa `ON CONFLICT DO NOTHING` (`.orIgnore()` de TypeORM) en vez de un
+`INSERT` liso, así que el que pierde la carrera simplemente no inserta nada en vez de fallar; como
+después del insert la fila con esa key ya existe en la DB —la haya creado uno u otro— un `findOne`
+posterior la resuelve sin necesitar inspeccionar códigos de error (`SQLSTATE`) del driver. Verificado
+con tests e2e (reintento secuencial, sin key, y dos requests concurrentes con la misma key) contra un
+Postgres real de Testcontainers, y a mano contra la Neon real.
 
 **Precisión numérica**: `price`/`close` viajan como `string` desde `pg` (Postgres `numeric`) para no
 perder precisión al parsear; los cálculos intermedios se hacen con `Number` en JS. Para un dominio

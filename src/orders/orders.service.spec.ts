@@ -1,7 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
-import { QueryFailedError } from 'typeorm';
 import {
   Instrument,
   InstrumentType,
@@ -51,12 +50,23 @@ describe('OrdersService (functional: envío de órdenes)', () => {
     getCashInstrument: jest.fn(),
   };
 
+  // Mock encadenable de `manager.createQueryBuilder().insert().into(Order).values(...)
+  // .orIgnore().execute()`, que usa `saveOrder` cuando viene una Idempotency-Key.
+  const insertQueryBuilder = {
+    insert: jest.fn().mockReturnThis(),
+    into: jest.fn().mockReturnThis(),
+    values: jest.fn().mockReturnThis(),
+    orIgnore: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue(undefined),
+  };
+
   // `create()` corre dentro de dataSource.transaction(); acá simulamos ese wrapper
   // devolviendo un `manager` fake cuyo getRepository(Order) es el mismo mock de arriba,
   // para poder seguir asertando sobre orderRepository.save sin levantar una DB real.
   const transactionalManager = {
     query: jest.fn().mockResolvedValue(undefined),
     getRepository: jest.fn().mockReturnValue(orderRepository),
+    createQueryBuilder: jest.fn().mockReturnValue(insertQueryBuilder),
   };
   const dataSource = {
     transaction: jest.fn(
@@ -465,7 +475,10 @@ describe('OrdersService (functional: envío de órdenes)', () => {
     });
 
     it('con una Idempotency-Key nunca vista, crea la orden y la guarda con esa key', async () => {
-      orderRepository.findOne.mockResolvedValue(null);
+      const created = { id: 100, idempotencyKey: 'key-1' } as Order;
+      orderRepository.findOne
+        .mockResolvedValueOnce(null) // chequeo inicial: todavía no existe
+        .mockResolvedValueOnce(created); // saveOrder la relee después de insertarla
 
       const order = await service.create(
         {
@@ -481,8 +494,10 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       expect(orderRepository.findOne).toHaveBeenCalledWith({
         where: { idempotencyKey: 'key-1' },
       });
-      expect(order.idempotencyKey).toBe('key-1');
+      expect(orderRepository.findOne).toHaveBeenCalledTimes(2);
       expect(dataSource.transaction).toHaveBeenCalled();
+      expect(insertQueryBuilder.orIgnore).toHaveBeenCalled();
+      expect(order).toBe(created);
     });
 
     it('reintento con la misma Idempotency-Key devuelve la orden ya creada, sin duplicar', async () => {
@@ -504,18 +519,14 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
-    it('dos requests concurrentes con la misma key: la que pierde la carrera de UNIQUE devuelve la fila ganadora en vez de fallar', async () => {
-      const winner = { id: 100, idempotencyKey: 'key-1' } as Order;
+    it('si el ON CONFLICT DO NOTHING se activa (perdimos la carrera), se devuelve la fila ganadora en vez de la que íbamos a crear', async () => {
+      // simula la carrera: el chequeo inicial no encuentra nada, pero para cuando
+      // `saveOrder` relee después del insert (que se salteó vía orIgnore porque
+      // alguien más ya insertó esa key primero), sí existe — y es una fila ajena.
+      const winner = { id: 999, idempotencyKey: 'key-1' } as Order;
       orderRepository.findOne
-        .mockResolvedValueOnce(null) // chequeo inicial: todavía no existe
-        .mockResolvedValueOnce(winner); // se recupera después del choque de UNIQUE
-
-      const uniqueViolation = new QueryFailedError('INSERT ...', [], {
-        code: '23505',
-      } as never);
-      dataSource.transaction.mockImplementationOnce(() =>
-        Promise.reject(uniqueViolation),
-      );
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(winner);
 
       const order = await service.create(
         {
@@ -529,6 +540,24 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       );
 
       expect(order).toBe(winner);
+      expect(orderRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('lanza si tras el insert (con orIgnore) no se encuentra ninguna fila con la key', async () => {
+      orderRepository.findOne.mockResolvedValue(null); // nunca aparece, ni antes ni después
+
+      await expect(
+        service.create(
+          {
+            userId: 1,
+            instrumentId: 34,
+            side: OrderSide.BUY,
+            type: OrderType.MARKET,
+            size: 10,
+          },
+          'key-1',
+        ),
+      ).rejects.toThrow(/No se pudo crear ni encontrar la orden/);
     });
 
     it('propaga otros errores de transacción sin tratarlos como duplicado', async () => {
