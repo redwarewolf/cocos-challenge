@@ -217,6 +217,44 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       expect(valuationService.getLastClose).not.toHaveBeenCalled();
     });
 
+    it('redondea el price de una orden LIMIT a 2 decimales (issue #7): 500.005 -> 500.01, no 500.00', async () => {
+      // (500.005).toFixed(2) nativo de JS da "500.00" (bug conocido de floats); con
+      // decimal.js da "500.01", que es lo matemáticamente correcto.
+      valuationService.getAvailableCash.mockResolvedValue(100_000);
+
+      const order = await service.create({
+        userId: 1,
+        instrumentId: 34,
+        side: OrderSide.BUY,
+        type: OrderType.LIMIT,
+        size: 10,
+        price: 500.005,
+      });
+
+      expect(order.status).toBe(OrderStatus.NEW);
+      expect(order.price).toBe('500.01');
+    });
+
+    it('valida los fondos contra el mismo price ya redondeado que se va a persistir (issue #7)', async () => {
+      // price crudo 500.005 -> redondeado a 500.01 (ver test anterior). size*price
+      // con el price YA redondeado = 10*500.01 = 5000.10, apenas por encima de un
+      // disponible de 5000.05: debe rechazar. Si la validación usara el price crudo
+      // sin redondear (10*500.005 = 5000.05), pasaría — señal de que se estaría
+      // validando contra un precio distinto al que termina persistido.
+      valuationService.getAvailableCash.mockResolvedValue(5000.05);
+
+      const order = await service.create({
+        userId: 1,
+        instrumentId: 34,
+        side: OrderSide.BUY,
+        type: OrderType.LIMIT,
+        size: 10,
+        price: 500.005,
+      });
+
+      expect(order.status).toBe(OrderStatus.REJECTED);
+    });
+
     it('rechaza (400) una orden LIMIT sin "price"', async () => {
       await expect(
         service.create({

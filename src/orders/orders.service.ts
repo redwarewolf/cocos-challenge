@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import Decimal from 'decimal.js';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Paginated } from '../common/dto/paginated-response.dto';
 import { PAGE_SIZE } from '../config/config';
@@ -270,12 +271,18 @@ export class OrdersService {
     return order;
   }
 
+  /**
+   * Redondea a 2 decimales acá (no al guardar la orden): el precio que se usa para
+   * calcular `size`/validar fondos debe ser el mismo que después se persiste, si no,
+   * un LIMIT con más de 2 decimales (`@IsNumber()` no lo restringe) podría validarse
+   * contra un precio y guardarse con otro ligeramente distinto.
+   */
   private async resolvePrice(
     dto: CreateOrderDto,
     manager: EntityManager,
   ): Promise<number> {
     if (dto.type === OrderType.LIMIT) {
-      return dto.price!;
+      return new Decimal(dto.price!).toDecimalPlaces(2).toNumber();
     }
     const lastClose = await this.valuationService.getLastClose(
       dto.instrumentId,
@@ -293,7 +300,7 @@ export class OrdersService {
     if (dto.size !== undefined) {
       return dto.size;
     }
-    const size = Math.floor(dto.amount! / price);
+    const size = new Decimal(dto.amount!).dividedBy(price).floor().toNumber();
     if (size < 1) {
       throw new BadRequestException(
         '"amount" is not enough to buy at least one share at the current price',
@@ -310,8 +317,11 @@ export class OrdersService {
   ): Promise<OrderStatus> {
     const hasEnoughFunds =
       dto.side === OrderSide.BUY
-        ? size * price <=
-          (await this.valuationService.getAvailableCash(dto.userId, manager))
+        ? new Decimal(size)
+            .times(price)
+            .lessThanOrEqualTo(
+              await this.valuationService.getAvailableCash(dto.userId, manager),
+            )
         : size <=
           (await this.valuationService.getAvailableQuantity(
             dto.userId,
