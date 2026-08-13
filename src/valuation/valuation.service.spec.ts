@@ -148,7 +148,9 @@ describe('ValuationService', () => {
       expect(position.quantity).toBe(40);
       expect(position.totalCost).toBe(37100);
       expect(position.marketValue).toBeCloseTo(37034, 5);
-      expect(position.performancePct).toBeCloseTo(-0.177897, 5);
+      // -0.177897...% redondeado a 2 decimales (issue #7): antes se devolvía tal cual,
+      // arrastrando el ruido de punto flotante hasta la respuesta de la API.
+      expect(position.performancePct).toBe(-0.18);
     });
 
     it('performancePct es 0 cuando totalCost es <= 0 (evita división por cero)', async () => {
@@ -192,6 +194,26 @@ describe('ValuationService', () => {
       const positions = await service.getPositions(1);
 
       expect(positions).toEqual([]);
+    });
+
+    it('marketValue === totalCost da performancePct exactamente 0, sin ruido de floats (issue #7)', async () => {
+      // 100 * 19.9 en floats nativos de JS da 1989.9999999999998 (no 1990), lo que
+      // antes de decimal.js dejaba un performancePct de -1.14e-14 en vez de 0.
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 1,
+          ticker: 'X',
+          name: 'X',
+          quantity: '100',
+          netCost: '1990.00',
+          lastClose: '19.90',
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      expect(position.marketValue).toBe(1990);
+      expect(position.performancePct).toBe(0);
     });
   });
 

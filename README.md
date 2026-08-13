@@ -59,7 +59,7 @@ Valor total de cuenta, pesos disponibles y posiciones del usuario.
       "quantity": 40,
       "marketValue": 37034,
       "totalCost": 37100,
-      "performancePct": -0.177
+      "performancePct": -0.18
     }
   ],
   "totalAccountValue": 904784
@@ -234,10 +234,28 @@ posterior la resuelve sin necesitar inspeccionar códigos de error (`SQLSTATE`) 
 con tests e2e (reintento secuencial, sin key, y dos requests concurrentes con la misma key) contra un
 Postgres real de Testcontainers, y a mano contra la Neon real.
 
-**Precisión numérica**: `price`/`close` viajan como `string` desde `pg` (Postgres `numeric`) para no
-perder precisión al parsear; los cálculos intermedios se hacen con `Number` en JS. Para un dominio
-real de trading se recomendaría una librería de precisión decimal (`decimal.js`), pero para el
-alcance de este challenge (montos en pesos con 2 decimales) no se justificó la complejidad extra.
+**Precisión numérica** (issue #7): `price`/`close` viajan como `string` desde `pg` (Postgres
+`numeric`) para no perder precisión al parsear. Se detectó en la práctica que encadenar operaciones
+sobre esos valores como `Number` de JS (floats de doble precisión) dejaba ruido de punto flotante en
+las respuestas — ej. `performancePct: -1.1548676206522556e-14` en vez de `0` para una posición sin
+ganancia ni pérdida (`100 * 19.9` da `1989.9999999999998` en JS nativo, no `1990`). Se migró a
+`decimal.js` puntualmente donde se encadenan operaciones en JS:
+
+- `ValuationService.getPositions`: `marketValue`, `performancePct` (y `totalCost` al pasar por
+  `Decimal`, aunque ya llegaba exacto desde Postgres).
+- `ValuationService.getPortfolio`: suma de `availableCash` + el `marketValue` de cada posición.
+- `OrdersService`: el `price` de una orden `LIMIT` se redondea a 2 decimales una única vez, en
+  `resolvePrice` — antes se usaba el valor crudo del cliente (`@IsNumber()` no restringe decimales)
+  para validar fondos, y recién se redondeaba con `.toFixed(2)` nativo al guardar, lo que podía dejar
+  la validación y el valor persistido ligeramente desalineados (y `.toFixed(2)` nativo tiene su
+  propio bug conocido de redondeo, ej. `(500.005).toFixed(2)` da `"500.00"` en vez de `"500.01"`).
+  `resolveSize` (`floor(amount / price)`) también pasa por `Decimal`.
+
+Deliberadamente **no** se tocó `getAvailableCash`/`getAvailableQuantity`/`getLastClose`: ahí la suma
+la hace Postgres en `NUMERIC` (aritmética decimal exacta), así que el valor ya llega como un string
+limpio — solo se lo parsea una vez a `number`, sin encadenar operaciones en JS, así que no hay error
+que introducir. Todo lo que sale de la API se redondea explícitamente a 2 decimales (también
+`performancePct`, antes sin redondear).
 
 **Orden de la búsqueda de instrumentos**: prioriza match exacto de ticker, luego prefijo de ticker,
 luego el resto (contiene en ticker o nombre), para que buscar `"ggal"` devuelva primero el ticker

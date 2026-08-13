@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import Decimal from 'decimal.js';
 import { EntityManager, Repository } from 'typeorm';
 import {
   Instrument,
@@ -37,6 +38,11 @@ export class ValuationService {
    * dentro de la misma transacción en la que toma el advisory lock por usuario, así la
    * lectura y el insert de la orden quedan protegidos contra condiciones de carrera
    * (ver OrdersService.create).
+   *
+   * Sin `Decimal` a propósito: la suma la hace Postgres en `NUMERIC` (aritmética decimal
+   * exacta), así que `rows[0].available` ya llega como un string sin error de floats — acá
+   * solo se lo parsea una vez a `number`, no se opera sobre él. `Decimal` hace falta en
+   * `getPositions`/`getPortfolio` porque ahí sí se encadenan operaciones en JS.
    */
   async getAvailableCash(
     userId: number,
@@ -140,21 +146,23 @@ export class ValuationService {
     );
 
     return rows.map((row) => {
-      const quantity = Number(row.quantity);
-      const totalCost = Number(row.netCost);
-      const lastClose = row.lastClose === null ? 0 : Number(row.lastClose);
-      const marketValue = quantity * lastClose;
-      const performancePct =
-        totalCost > 0 ? ((marketValue - totalCost) / totalCost) * 100 : 0;
+      const quantity = new Decimal(row.quantity);
+      const totalCost = new Decimal(row.netCost);
+      const lastClose =
+        row.lastClose === null ? new Decimal(0) : new Decimal(row.lastClose);
+      const marketValue = quantity.times(lastClose);
+      const performancePct = totalCost.greaterThan(0)
+        ? marketValue.minus(totalCost).dividedBy(totalCost).times(100)
+        : new Decimal(0);
 
       return {
         instrumentId: row.instrumentId,
         ticker: row.ticker,
         name: row.name,
-        quantity,
-        marketValue,
-        totalCost,
-        performancePct,
+        quantity: quantity.toNumber(),
+        marketValue: marketValue.toDecimalPlaces(2).toNumber(),
+        totalCost: totalCost.toDecimalPlaces(2).toNumber(),
+        performancePct: performancePct.toDecimalPlaces(2).toNumber(),
       };
     });
   }
@@ -165,13 +173,19 @@ export class ValuationService {
       this.getPositions(userId),
     ]);
 
-    const positionsValue = positions.reduce((sum, p) => sum + p.marketValue, 0);
+    const positionsValue = positions.reduce(
+      (sum, p) => sum.plus(p.marketValue),
+      new Decimal(0),
+    );
 
     return {
       userId,
       availableCash,
       positions,
-      totalAccountValue: availableCash + positionsValue,
+      totalAccountValue: new Decimal(availableCash)
+        .plus(positionsValue)
+        .toDecimalPlaces(2)
+        .toNumber(),
     };
   }
 }
