@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_LOG_LEVEL = 'info';
 
 /** Techo fijo (no configurable): protección básica contra pedir de más, no un knob de tuning. */
 export const MAX_PAGE_SIZE = 100;
@@ -32,6 +33,7 @@ export interface AppConfig {
   databaseUrl: string | undefined;
   dbSsl: boolean;
   port: number;
+  logLevel: string;
 }
 
 /**
@@ -47,5 +49,6 @@ export function getConfig(): AppConfig {
     databaseUrl: process.env.DATABASE_URL,
     dbSsl: process.env.DB_SSL !== 'false',
     port: parsePositiveInt(process.env.PORT, DEFAULT_PORT),
+    logLevel: process.env.LOG_LEVEL || DEFAULT_LOG_LEVEL,
   };
 }
