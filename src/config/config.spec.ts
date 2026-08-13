@@ -31,6 +31,7 @@ describe('getConfig', () => {
     };
     delete process.env.DB_SSL;
     delete process.env.PORT;
+    delete process.env.LOG_LEVEL;
   });
 
   afterAll(() => {
@@ -70,5 +71,14 @@ describe('getConfig', () => {
 
   it('devuelve el databaseUrl tal cual', () => {
     expect(getConfig().databaseUrl).toBe('postgresql://user:pass@host:5432/db');
+  });
+
+  it('logLevel default es "info" si LOG_LEVEL no está definida', () => {
+    expect(getConfig().logLevel).toBe('info');
+  });
+
+  it('respeta LOG_LEVEL si está definida', () => {
+    process.env.LOG_LEVEL = 'debug';
+    expect(getConfig().logLevel).toBe('debug');
   });
 });

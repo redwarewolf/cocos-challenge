@@ -1,11 +1,16 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { getConfig } from './config/config';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // bufferLogs: los logs de arranque de Nest (inicialización de módulos, rutas
+  // mapeadas) se guardan en un buffer hasta que `useLogger` toma el control, así
+  // también salen formateados por pino en vez de perderse con el logger default.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

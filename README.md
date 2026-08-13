@@ -282,6 +282,24 @@ migraciones (`migration:run`/`migration:revert`), que corre completamente fuera 
 DI de Nest — un `ConfigService` inyectable no serviría ahí. `PAGE_SIZE` sí se resuelve una sola vez
 al importar el módulo, porque a diferencia de `DATABASE_URL` ningún test lo pisa en runtime.
 
+**Logging estructurado y correlation id** (issue #9): reemplaza el logger default de Nest (texto
+plano) por `nestjs-pino` — logs en JSON, listos para ingestar por cualquier herramienta de
+observabilidad, en vez de líneas de texto a parsear. Cada request recibe un `x-request-id`
+(`src/logging/logger.config.ts`, `genReqId`): si el cliente/proxy ya mandó ese header se reusa (no
+corta la trazabilidad end-to-end si hay un gateway adelante), si no se genera un UUID nuevo — en
+ambos casos se devuelve también en la respuesta. `pino-http` (que trae `nestjs-pino`) loguea
+automáticamente cada request/response con ese id, método, url, status y tiempo de respuesta, sin
+tocar los controllers/services — alcanza para reconstruir el orden temporal de requests
+concurrentes (el motivador original: diagnosticar problemas como el que ya se encontró y corrigió
+con el advisory lock, ver "Concurrencia" más arriba). Nivel configurable con `LOG_LEVEL`
+(`fatal|error|warn|info|debug|trace`, default `info`), pero fijo en `silent` cuando `NODE_ENV=test`
+(lo fija Jest solo) para no ensuciar la salida de `npm test`/`npm run test:e2e`, sin importar
+`LOG_LEVEL`. Formato "pretty" (legible) solo fuera de producción — el `Dockerfile` corre con
+`NODE_ENV=production`, ahí interesa JSON crudo para una herramienta de logs, no texto formateado a
+mano. `main.ts` usa `bufferLogs: true` + `app.useLogger()` para que hasta los logs de arranque de
+Nest (inicialización de módulos, rutas mapeadas) salgan formateados por pino, no por el logger
+default.
+
 **Response DTOs**: `OrderResponseDto`, `InstrumentResponseDto`, `PortfolioResponseDto` (en cada
 módulo, carpeta `dto/`) documentan con `@ApiProperty` la forma real de cada respuesta para que
 Swagger genere un schema útil — antes los controllers devolvían entidades TypeORM/interfaces sin
@@ -349,6 +367,7 @@ Dockerfile                 # multi-stage: build (nest build) + runtime (solo pro
 docker-compose.yml         # levanta solo la API, leyendo DATABASE_URL de .env (la DB es la Neon remota)
 src/
   config/config.ts  # todas las env vars del proyecto, en un solo lugar + .spec
+  logging/          # logger.config.ts: nestjs-pino (JSON, x-request-id por request) + .spec
   common/dto/       # PaginationQueryDto + PaginatedResponseDto (compartidos entre endpoints)
   database/
     entities/      # User, Instrument, Order, MarketData — mapeadas 1:1 a las columnas reales
