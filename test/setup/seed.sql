@@ -1,47 +1,10 @@
--- Esquema idéntico al provisto por Cocos (database.sql), recreado en el Postgres
--- efímero de Testcontainers para los tests e2e. Seed mínimo y determinístico,
--- pensado para que los asserts de los tests no dependan de datos externos.
+-- Seed de test determinístico — separado a propósito de las migraciones (que solo
+-- versionan esquema, no datos): esto NO es el seed real de Cocos, es uno propio y
+-- más chico, pensado para que los asserts de los e2e no dependan de datos externos.
+-- Se corre después de aplicar las migraciones reales contra el Postgres efímero de
+-- Testcontainers (ver test/setup/test-database.ts).
 
-CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
-  email VARCHAR(255),
-  accountNumber VARCHAR(20)
-);
-
-CREATE TABLE instruments (
-  id SERIAL PRIMARY KEY,
-  ticker VARCHAR(10),
-  name VARCHAR(255),
-  type VARCHAR(10)
-);
-
-CREATE TABLE orders (
-  id SERIAL PRIMARY KEY,
-  instrumentId INT,
-  userId INT,
-  size INT,
-  price NUMERIC(10, 2),
-  type VARCHAR(10),
-  side VARCHAR(10),
-  status VARCHAR(20),
-  datetime TIMESTAMP,
-  FOREIGN KEY (instrumentId) REFERENCES instruments(id),
-  FOREIGN KEY (userId) REFERENCES users(id)
-);
-
-CREATE TABLE marketdata (
-  id SERIAL PRIMARY KEY,
-  instrumentId INT,
-  high NUMERIC(10, 2),
-  low NUMERIC(10, 2),
-  open NUMERIC(10, 2),
-  close NUMERIC(10, 2),
-  previousClose NUMERIC(10, 2),
-  date DATE,
-  FOREIGN KEY (instrumentId) REFERENCES instruments(id)
-);
-
--- Seed: 2 usuarios (uno fondeado, uno sin cash), 1 moneda (ARS) + 1 acción (GGAL),
+-- 2 usuarios (uno fondeado, uno sin cash), 1 moneda (ARS) + 1 acción (GGAL),
 -- 2 días de marketdata para GGAL, y solo el CASH_IN inicial del usuario 1.
 -- El resto de los movimientos los generan los propios tests contra la API.
 
