@@ -6,7 +6,7 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Paginated } from '../common/dto/paginated-response.dto';
-import { PAGE_SIZE } from '../common/pagination.constants';
+import { PAGE_SIZE } from '../config/config';
 import {
   Instrument,
   InstrumentType,

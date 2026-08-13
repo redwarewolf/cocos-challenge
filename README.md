@@ -181,8 +181,19 @@ simple de consumir. El envelope `{ data, total, page, limit }` y el
 entre `GET /instruments/search` y `GET /orders`, así que agregar un tercer endpoint paginado no
 requeriría reinventar el esquema de respuesta. El tamaño de página default es configurable por
 entorno (`PAGE_SIZE`, ver `.env.example`; default 20 si no se define); el máximo permitido por
-request queda fijo en 100 (no es una env var, es solo una protección básica) —
-`src/common/pagination.constants.ts`.
+request queda fijo en 100 (no es una env var, es solo una protección básica).
+
+**Configuración centralizada**: todas las variables de entorno del proyecto (`DATABASE_URL`,
+`DB_SSL`, `PORT`, `PAGE_SIZE`) se leen en un único lugar, `src/config/config.ts`, en vez de estar
+dispersas por archivo. `getConfig()` (no un objeto estático) resuelve `DATABASE_URL`/`DB_SSL`/`PORT`
+recién cuando se llama, no al importar el módulo: los tests e2e pisan esas variables en runtime
+antes de bootear la app para apuntar al Postgres de Testcontainers, y si `config.ts` las capturara
+una sola vez al cargarse podrían quedar "congeladas" con el valor real de `.env` (según qué módulo
+las importe primero). No se usa `ConfigService` de `@nestjs/config` (aunque está instalado y
+`ConfigModule` sigue wireado en `AppModule`) porque este mismo archivo lo importa también el CLI de
+migraciones (`migration:run`/`migration:revert`), que corre completamente fuera del contenedor de
+DI de Nest — un `ConfigService` inyectable no serviría ahí. `PAGE_SIZE` sí se resuelve una sola vez
+al importar el módulo, porque a diferencia de `DATABASE_URL` ningún test lo pisa en runtime.
 
 **Response DTOs**: `OrderResponseDto`, `InstrumentResponseDto`, `PortfolioResponseDto` (en cada
 módulo, carpeta `dto/`) documentan con `@ApiProperty` la forma real de cada respuesta para que
@@ -199,7 +210,7 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 60 tests): uno por servicio (`OrdersService`, `ValuationService`,
+**Unit tests** (`src/**/*.spec.ts`, 75 tests): uno por servicio (`OrdersService`, `ValuationService`,
 `PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
 repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
 compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
@@ -239,6 +250,7 @@ e2e resuelve su propia base efímera, nunca la de Cocos.
 ```
 .github/workflows/ci.yml  # lint + type-check + unit + e2e + build en cada push/PR a main
 src/
+  config/config.ts  # todas las env vars del proyecto, en un solo lugar + .spec
   common/dto/       # PaginationQueryDto + PaginatedResponseDto (compartidos entre endpoints)
   database/
     entities/      # User, Instrument, Order, MarketData — mapeadas 1:1 a las columnas reales

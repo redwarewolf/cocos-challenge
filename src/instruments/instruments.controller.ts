@@ -4,7 +4,7 @@ import {
   Paginated,
   PaginatedResponseDto,
 } from '../common/dto/paginated-response.dto';
-import { PAGE_SIZE } from '../common/pagination.constants';
+import { PAGE_SIZE } from '../config/config';
 import { InstrumentResponseDto } from './dto/instrument-response.dto';
 import { SearchInstrumentsDto } from './dto/search-instruments.dto';
 import { InstrumentsService } from './instruments.service';
