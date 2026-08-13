@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { EntityManager } from 'typeorm';
 import {
   Instrument,
   InstrumentType,
@@ -13,9 +14,11 @@ import {
 } from '../database/entities/order.entity';
 import { User } from '../database/entities/user.entity';
 import { ValuationService } from '../valuation/valuation.service';
+import { IdempotentOrderWriter, OrderData } from './idempotent-order-writer';
+import { OrderPricingService } from './order-pricing.service';
 import { OrdersService } from './orders.service';
 
-describe('OrdersService (functional: envío de órdenes)', () => {
+describe('OrdersService (orquestación: valida input, delega en los colaboradores)', () => {
   let service: OrdersService;
 
   const user: User = { id: 1, email: 'user@test.com', accountNumber: '10001' };
@@ -35,43 +38,37 @@ describe('OrdersService (functional: envío de órdenes)', () => {
   const userRepository = { findOne: jest.fn() };
   const instrumentRepository = { findOne: jest.fn() };
   const orderRepository = {
-    create: jest.fn((data: Partial<Order>) => data),
-    save: jest.fn(
-      (order: Partial<Order>) =>
-        Promise.resolve({ id: 100, ...order }) as Promise<Order>,
-    ),
     findOne: jest.fn(),
     findAndCount: jest.fn(),
+    save: jest.fn(
+      (order: Partial<Order>) => Promise.resolve(order) as Promise<Order>,
+    ),
   };
   const valuationService = {
-    getLastClose: jest.fn(),
     getAvailableCash: jest.fn(),
-    getAvailableQuantity: jest.fn(),
     getCashInstrument: jest.fn(),
   };
-
-  // Mock encadenable de `manager.createQueryBuilder().insert().into(Order).values(...)
-  // .orIgnore().execute()`, que usa `saveOrder` cuando viene una Idempotency-Key.
-  const insertQueryBuilder = {
-    insert: jest.fn().mockReturnThis(),
-    into: jest.fn().mockReturnThis(),
-    values: jest.fn().mockReturnThis(),
-    orIgnore: jest.fn().mockReturnThis(),
-    execute: jest.fn().mockResolvedValue(undefined),
+  const orderPricing = {
+    resolvePrice: jest.fn(),
+    resolveSize: jest.fn(),
+    resolveStatus: jest.fn(),
   };
-
-  // `create()` corre dentro de dataSource.transaction(); acá simulamos ese wrapper
-  // devolviendo un `manager` fake cuyo getRepository(Order) es el mismo mock de arriba,
-  // para poder seguir asertando sobre orderRepository.save sin levantar una DB real.
-  const transactionalManager = {
-    query: jest.fn().mockResolvedValue(undefined),
-    getRepository: jest.fn().mockReturnValue(orderRepository),
-    createQueryBuilder: jest.fn().mockReturnValue(insertQueryBuilder),
-  };
-  const dataSource = {
-    transaction: jest.fn(
-      (cb: (manager: typeof transactionalManager) => Promise<Order>) =>
-        cb(transactionalManager),
+  // Invoca computeData de verdad (como haría el real), para poder asertar qué le
+  // termina llegando desde OrdersService — pero sin nada de lock/idempotencia real.
+  const idempotentOrderWriter = {
+    write: jest.fn(
+      async (
+        idempotencyKey: string | undefined,
+        _userId: number,
+        computeData: (manager: EntityManager) => Promise<OrderData>,
+      ) => {
+        const data = await computeData({} as EntityManager);
+        return {
+          id: 100,
+          idempotencyKey: idempotencyKey ?? null,
+          ...data,
+        } as Order;
+      },
     ),
   };
 
@@ -90,7 +87,8 @@ describe('OrdersService (functional: envío de órdenes)', () => {
           useValue: instrumentRepository,
         },
         { provide: ValuationService, useValue: valuationService },
-        { provide: getDataSourceToken(), useValue: dataSource },
+        { provide: OrderPricingService, useValue: orderPricing },
+        { provide: IdempotentOrderWriter, useValue: idempotentOrderWriter },
       ],
     }).compile();
 
@@ -98,170 +96,13 @@ describe('OrdersService (functional: envío de órdenes)', () => {
   });
 
   describe('create', () => {
-    it('llena una orden MARKET al último close cuando hay fondos suficientes', async () => {
-      valuationService.getLastClose.mockResolvedValue(900);
-      valuationService.getAvailableCash.mockResolvedValue(100_000);
-
-      const order = await service.create({
-        userId: 1,
-        instrumentId: 34,
-        side: OrderSide.BUY,
-        type: OrderType.MARKET,
-        size: 10,
-      });
-
-      expect(order.status).toBe(OrderStatus.FILLED);
-      expect(order.price).toBe('900.00');
-      expect(order.size).toBe(10);
-    });
-
-    it('toma el advisory lock por userId antes de leer disponible y guardar la orden', async () => {
-      valuationService.getLastClose.mockResolvedValue(900);
-      valuationService.getAvailableCash.mockResolvedValue(100_000);
-
-      await service.create({
-        userId: 7,
-        instrumentId: 34,
-        side: OrderSide.BUY,
-        type: OrderType.MARKET,
-        size: 1,
-      });
-
-      expect(dataSource.transaction).toHaveBeenCalled();
-      expect(transactionalManager.query).toHaveBeenCalledWith(
-        'SELECT pg_advisory_xact_lock($1)',
-        [7],
-      );
-      // el lock se pide antes de consultar el disponible / guardar la orden
-      const lockCallOrder =
-        transactionalManager.query.mock.invocationCallOrder[0];
-      const availableCashCallOrder =
-        valuationService.getAvailableCash.mock.invocationCallOrder[0];
-      expect(lockCallOrder).toBeLessThan(availableCashCallOrder);
-    });
-
-    it('calcula el size a partir de "amount", redondeando hacia abajo sin fracciones', async () => {
-      valuationService.getLastClose.mockResolvedValue(900);
-      valuationService.getAvailableCash.mockResolvedValue(100_000);
-
-      const order = await service.create({
-        userId: 1,
-        instrumentId: 34,
-        side: OrderSide.BUY,
-        type: OrderType.MARKET,
-        amount: 5000,
-      });
-
-      expect(order.size).toBe(5); // floor(5000 / 900) = 5
-    });
-
-    it('rechaza (400) si el "amount" no alcanza para comprar ni una acción', async () => {
-      valuationService.getLastClose.mockResolvedValue(900);
-
+    it('rechaza (400) side distinto de BUY/SELL (ej. CASH_IN)', async () => {
       await expect(
         service.create({
           userId: 1,
-          instrumentId: 34,
-          side: OrderSide.BUY,
+          instrumentId: 66,
+          side: OrderSide.CASH_IN,
           type: OrderType.MARKET,
-          amount: 100,
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('persiste la orden como REJECTED si no hay fondos suficientes para un BUY', async () => {
-      valuationService.getLastClose.mockResolvedValue(900);
-      valuationService.getAvailableCash.mockResolvedValue(1000);
-
-      const order = await service.create({
-        userId: 1,
-        instrumentId: 34,
-        side: OrderSide.BUY,
-        type: OrderType.MARKET,
-        size: 10,
-      });
-
-      expect(order.status).toBe(OrderStatus.REJECTED);
-      expect(orderRepository.save).toHaveBeenCalled();
-    });
-
-    it('persiste la orden como REJECTED si no hay tenencia suficiente para un SELL', async () => {
-      valuationService.getAvailableQuantity.mockResolvedValue(5);
-      valuationService.getLastClose.mockResolvedValue(900);
-
-      const order = await service.create({
-        userId: 1,
-        instrumentId: 34,
-        side: OrderSide.SELL,
-        type: OrderType.MARKET,
-        size: 10,
-      });
-
-      expect(order.status).toBe(OrderStatus.REJECTED);
-    });
-
-    it('deja una orden LIMIT como NEW usando el precio enviado, no el de mercado', async () => {
-      valuationService.getAvailableCash.mockResolvedValue(100_000);
-
-      const order = await service.create({
-        userId: 1,
-        instrumentId: 34,
-        side: OrderSide.BUY,
-        type: OrderType.LIMIT,
-        size: 10,
-        price: 500,
-      });
-
-      expect(order.status).toBe(OrderStatus.NEW);
-      expect(order.price).toBe('500.00');
-      expect(valuationService.getLastClose).not.toHaveBeenCalled();
-    });
-
-    it('redondea el price de una orden LIMIT a 2 decimales (issue #7): 500.005 -> 500.01, no 500.00', async () => {
-      // (500.005).toFixed(2) nativo de JS da "500.00" (bug conocido de floats); con
-      // decimal.js da "500.01", que es lo matemáticamente correcto.
-      valuationService.getAvailableCash.mockResolvedValue(100_000);
-
-      const order = await service.create({
-        userId: 1,
-        instrumentId: 34,
-        side: OrderSide.BUY,
-        type: OrderType.LIMIT,
-        size: 10,
-        price: 500.005,
-      });
-
-      expect(order.status).toBe(OrderStatus.NEW);
-      expect(order.price).toBe('500.01');
-    });
-
-    it('valida los fondos contra el mismo price ya redondeado que se va a persistir (issue #7)', async () => {
-      // price crudo 500.005 -> redondeado a 500.01 (ver test anterior). size*price
-      // con el price YA redondeado = 10*500.01 = 5000.10, apenas por encima de un
-      // disponible de 5000.05: debe rechazar. Si la validación usara el price crudo
-      // sin redondear (10*500.005 = 5000.05), pasaría — señal de que se estaría
-      // validando contra un precio distinto al que termina persistido.
-      valuationService.getAvailableCash.mockResolvedValue(5000.05);
-
-      const order = await service.create({
-        userId: 1,
-        instrumentId: 34,
-        side: OrderSide.BUY,
-        type: OrderType.LIMIT,
-        size: 10,
-        price: 500.005,
-      });
-
-      expect(order.status).toBe(OrderStatus.REJECTED);
-    });
-
-    it('rechaza (400) una orden LIMIT sin "price"', async () => {
-      await expect(
-        service.create({
-          userId: 1,
-          instrumentId: 34,
-          side: OrderSide.BUY,
-          type: OrderType.LIMIT,
           size: 10,
         }),
       ).rejects.toThrow(BadRequestException);
@@ -280,13 +121,13 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('rechaza (400) side distinto de BUY/SELL (ej. CASH_IN)', async () => {
+    it('rechaza (400) una orden LIMIT sin "price"', async () => {
       await expect(
         service.create({
           userId: 1,
-          instrumentId: 66,
-          side: OrderSide.CASH_IN,
-          type: OrderType.MARKET,
+          instrumentId: 34,
+          side: OrderSide.BUY,
+          type: OrderType.LIMIT,
           size: 10,
         }),
       ).rejects.toThrow(BadRequestException);
@@ -318,6 +159,71 @@ describe('OrdersService (functional: envío de órdenes)', () => {
           size: 10,
         }),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('lanza 404 si el instrumento no existe', async () => {
+      instrumentRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.create({
+          userId: 1,
+          instrumentId: 999,
+          side: OrderSide.BUY,
+          type: OrderType.MARKET,
+          size: 10,
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('encadena resolvePrice -> resolveSize -> resolveStatus, pasando el price resuelto a cada paso siguiente', async () => {
+      orderPricing.resolvePrice.mockResolvedValue(500.01);
+      orderPricing.resolveSize.mockReturnValue(10);
+      orderPricing.resolveStatus.mockResolvedValue(OrderStatus.NEW);
+
+      const order = await service.create({
+        userId: 1,
+        instrumentId: 34,
+        side: OrderSide.BUY,
+        type: OrderType.LIMIT,
+        size: 10,
+        price: 500.005,
+      });
+
+      expect(orderPricing.resolveSize).toHaveBeenCalledWith(
+        expect.anything(),
+        500.01,
+      );
+      expect(orderPricing.resolveStatus).toHaveBeenCalledWith(
+        expect.anything(),
+        10,
+        500.01,
+        expect.anything(),
+      );
+      expect(order.price).toBe('500.01');
+      expect(order.status).toBe(OrderStatus.NEW);
+    });
+
+    it('delega en idempotentOrderWriter.write con el userId y la Idempotency-Key recibidos', async () => {
+      orderPricing.resolvePrice.mockResolvedValue(900);
+      orderPricing.resolveSize.mockReturnValue(10);
+      orderPricing.resolveStatus.mockResolvedValue(OrderStatus.FILLED);
+
+      await service.create(
+        {
+          userId: 7,
+          instrumentId: 34,
+          side: OrderSide.BUY,
+          type: OrderType.MARKET,
+          size: 10,
+        },
+        'key-1',
+      );
+
+      expect(idempotentOrderWriter.write).toHaveBeenCalledWith(
+        'key-1',
+        7,
+        expect.any(Function),
+      );
     });
   });
 
@@ -363,21 +269,20 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       });
 
       expect(order.status).toBe(OrderStatus.REJECTED);
-      expect(orderRepository.save).toHaveBeenCalled();
     });
 
-    it('toma el advisory lock por userId', async () => {
+    it('delega en idempotentOrderWriter.write con el userId y la Idempotency-Key recibidos', async () => {
       valuationService.getAvailableCash.mockResolvedValue(100000);
 
-      await service.createCashMovement({
-        userId: 9,
-        side: OrderSide.CASH_IN,
-        amount: 1000,
-      });
+      await service.createCashMovement(
+        { userId: 9, side: OrderSide.CASH_IN, amount: 1000 },
+        'cash-key',
+      );
 
-      expect(transactionalManager.query).toHaveBeenCalledWith(
-        'SELECT pg_advisory_xact_lock($1)',
-        [9],
+      expect(idempotentOrderWriter.write).toHaveBeenCalledWith(
+        'cash-key',
+        9,
+        expect.any(Function),
       );
     });
 
@@ -490,146 +395,6 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       orderRepository.findOne.mockResolvedValue(null);
 
       await expect(service.cancel(999)).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('idempotencia (issue #8)', () => {
-    beforeEach(() => {
-      valuationService.getLastClose.mockResolvedValue(900);
-      valuationService.getAvailableCash.mockResolvedValue(100_000);
-    });
-
-    it('sin Idempotency-Key, crea la orden normalmente con idempotencyKey null', async () => {
-      const order = await service.create({
-        userId: 1,
-        instrumentId: 34,
-        side: OrderSide.BUY,
-        type: OrderType.MARKET,
-        size: 10,
-      });
-
-      expect(orderRepository.findOne).not.toHaveBeenCalled();
-      expect(order.idempotencyKey).toBeNull();
-    });
-
-    it('con una Idempotency-Key nunca vista, crea la orden y la guarda con esa key', async () => {
-      const created = { id: 100, idempotencyKey: 'key-1' } as Order;
-      orderRepository.findOne
-        .mockResolvedValueOnce(null) // chequeo inicial: todavía no existe
-        .mockResolvedValueOnce(created); // saveOrder la relee después de insertarla
-
-      const order = await service.create(
-        {
-          userId: 1,
-          instrumentId: 34,
-          side: OrderSide.BUY,
-          type: OrderType.MARKET,
-          size: 10,
-        },
-        'key-1',
-      );
-
-      expect(orderRepository.findOne).toHaveBeenCalledWith({
-        where: { idempotencyKey: 'key-1' },
-      });
-      expect(orderRepository.findOne).toHaveBeenCalledTimes(2);
-      expect(dataSource.transaction).toHaveBeenCalled();
-      expect(insertQueryBuilder.orIgnore).toHaveBeenCalled();
-      expect(order).toBe(created);
-    });
-
-    it('reintento con la misma Idempotency-Key devuelve la orden ya creada, sin duplicar', async () => {
-      const existing = { id: 100, idempotencyKey: 'key-1' } as Order;
-      orderRepository.findOne.mockResolvedValue(existing);
-
-      const order = await service.create(
-        {
-          userId: 1,
-          instrumentId: 34,
-          side: OrderSide.BUY,
-          type: OrderType.MARKET,
-          size: 10,
-        },
-        'key-1',
-      );
-
-      expect(order).toBe(existing);
-      expect(dataSource.transaction).not.toHaveBeenCalled();
-    });
-
-    it('si el ON CONFLICT DO NOTHING se activa (perdimos la carrera), se devuelve la fila ganadora en vez de la que íbamos a crear', async () => {
-      // simula la carrera: el chequeo inicial no encuentra nada, pero para cuando
-      // `saveOrder` relee después del insert (que se salteó vía orIgnore porque
-      // alguien más ya insertó esa key primero), sí existe — y es una fila ajena.
-      const winner = { id: 999, idempotencyKey: 'key-1' } as Order;
-      orderRepository.findOne
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(winner);
-
-      const order = await service.create(
-        {
-          userId: 1,
-          instrumentId: 34,
-          side: OrderSide.BUY,
-          type: OrderType.MARKET,
-          size: 10,
-        },
-        'key-1',
-      );
-
-      expect(order).toBe(winner);
-      expect(orderRepository.save).not.toHaveBeenCalled();
-    });
-
-    it('lanza si tras el insert (con orIgnore) no se encuentra ninguna fila con la key', async () => {
-      orderRepository.findOne.mockResolvedValue(null); // nunca aparece, ni antes ni después
-
-      await expect(
-        service.create(
-          {
-            userId: 1,
-            instrumentId: 34,
-            side: OrderSide.BUY,
-            type: OrderType.MARKET,
-            size: 10,
-          },
-          'key-1',
-        ),
-      ).rejects.toThrow(/No se pudo crear ni encontrar la orden/);
-    });
-
-    it('propaga otros errores de transacción sin tratarlos como duplicado', async () => {
-      orderRepository.findOne.mockResolvedValue(null);
-      dataSource.transaction.mockImplementationOnce(() =>
-        Promise.reject(new Error('boom')),
-      );
-
-      await expect(
-        service.create(
-          {
-            userId: 1,
-            instrumentId: 34,
-            side: OrderSide.BUY,
-            type: OrderType.MARKET,
-            size: 10,
-          },
-          'key-1',
-        ),
-      ).rejects.toThrow('boom');
-    });
-
-    it('createCashMovement también respeta la Idempotency-Key', async () => {
-      valuationService.getCashInstrument.mockResolvedValue(cash);
-      const existing = { id: 200, idempotencyKey: 'cash-key' } as Order;
-      orderRepository.findOne.mockResolvedValue(existing);
-
-      const order = await service.createCashMovement(
-        { userId: 1, side: OrderSide.CASH_IN, amount: 1000 },
-        'cash-key',
-      );
-
-      expect(order).toBe(existing);
-      expect(dataSource.transaction).not.toHaveBeenCalled();
     });
   });
 });
