@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   HealthCheck,
@@ -7,8 +7,12 @@ import {
   TypeOrmHealthIndicator,
 } from '@nestjs/terminus';
 
+/**
+ * VERSION_NEUTRAL (issue #34): un healthcheck no debería depender de qué versión de la
+ * API se le pida — queda en /health, sin el prefijo /v1 que llevan el resto de las rutas.
+ */
 @ApiTags('health')
-@Controller('health')
+@Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,

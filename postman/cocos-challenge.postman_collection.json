@@ -5,7 +5,12 @@
     "description": "Colección con test scripts para correr headless con Newman (npm run test:postman). Usa datos reales del seed contra la Neon real: userId 1..2, instrumentos GGAL(34), PAMP(47), ARS(66, MONEDA). Requiere el server corriendo (npm run start:dev o docker compose up) antes de ejecutarla.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "variable": [{ "key": "baseUrl", "value": "http://localhost:3000" }],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    }
+  ],
   "item": [
     {
       "name": "0. Health",
@@ -17,8 +22,12 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/health",
-              "host": ["{{baseUrl}}"],
-              "path": ["health"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
             }
           },
           "event": [
@@ -52,9 +61,15 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/portfolio/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["portfolio", "1"]
+              "raw": "{{baseUrl}}/v1/portfolio/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "portfolio",
+                "1"
+              ]
             }
           },
           "event": [
@@ -82,9 +97,15 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/portfolio/2",
-              "host": ["{{baseUrl}}"],
-              "path": ["portfolio", "2"]
+              "raw": "{{baseUrl}}/v1/portfolio/2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "portfolio",
+                "2"
+              ]
             }
           },
           "event": [
@@ -111,9 +132,15 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/portfolio/999",
-              "host": ["{{baseUrl}}"],
-              "path": ["portfolio", "999"]
+              "raw": "{{baseUrl}}/v1/portfolio/999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "portfolio",
+                "999"
+              ]
             }
           },
           "event": [
@@ -121,7 +148,9 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('404', () => pm.response.to.have.status(404));"]
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
               }
             }
           ]
@@ -137,10 +166,21 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/instruments/search?q=gal",
-              "host": ["{{baseUrl}}"],
-              "path": ["instruments", "search"],
-              "query": [{ "key": "q", "value": "gal" }]
+              "raw": "{{baseUrl}}/v1/instruments/search?q=gal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instruments",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "gal"
+                }
+              ]
             }
           },
           "event": [
@@ -167,10 +207,21 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/instruments/search?q=banco",
-              "host": ["{{baseUrl}}"],
-              "path": ["instruments", "search"],
-              "query": [{ "key": "q", "value": "banco" }]
+              "raw": "{{baseUrl}}/v1/instruments/search?q=banco",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instruments",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "banco"
+                }
+              ]
             }
           },
           "event": [
@@ -194,13 +245,28 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/instruments/search?q=a&page=2&limit=5",
-              "host": ["{{baseUrl}}"],
-              "path": ["instruments", "search"],
+              "raw": "{{baseUrl}}/v1/instruments/search?q=a&page=2&limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instruments",
+                "search"
+              ],
               "query": [
-                { "key": "q", "value": "a" },
-                { "key": "page", "value": "2" },
-                { "key": "limit", "value": "5" }
+                {
+                  "key": "q",
+                  "value": "a"
+                },
+                {
+                  "key": "page",
+                  "value": "2"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
               ]
             }
           },
@@ -228,10 +294,21 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/instruments/search?q=zzzz",
-              "host": ["{{baseUrl}}"],
-              "path": ["instruments", "search"],
-              "query": [{ "key": "q", "value": "zzzz" }]
+              "raw": "{{baseUrl}}/v1/instruments/search?q=zzzz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instruments",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "zzzz"
+                }
+              ]
             }
           },
           "event": [
@@ -257,12 +334,24 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/instruments/search?q=a&limit=101",
-              "host": ["{{baseUrl}}"],
-              "path": ["instruments", "search"],
+              "raw": "{{baseUrl}}/v1/instruments/search?q=a&limit=101",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instruments",
+                "search"
+              ],
               "query": [
-                { "key": "q", "value": "a" },
-                { "key": "limit", "value": "101" }
+                {
+                  "key": "q",
+                  "value": "a"
+                },
+                {
+                  "key": "limit",
+                  "value": "101"
+                }
               ]
             }
           },
@@ -271,7 +360,9 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('400', () => pm.response.to.have.status(400));"]
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
               }
             }
           ]
@@ -285,16 +376,30 @@
           "name": "POST /orders — MARKET BUY por size exacto",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 34,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"size\": 10\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"]
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
             }
           },
           "event": [
@@ -319,16 +424,30 @@
           "name": "POST /orders — MARKET BUY por amount en pesos",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 34,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"amount\": 5000\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"]
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
             }
           },
           "event": [
@@ -352,16 +471,30 @@
           "name": "POST /orders — LIMIT BUY (queda NEW)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 34,\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5,\n  \"price\": 700\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"]
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
             }
           },
           "event": [
@@ -386,16 +519,30 @@
           "name": "POST /orders — SELL MARKET",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"SELL\",\n  \"type\": \"MARKET\",\n  \"size\": 5\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"]
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
             }
           },
           "event": [
@@ -417,16 +564,30 @@
           "name": "POST /orders — se rechaza por fondos insuficientes (REJECTED)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 2,\n  \"instrumentId\": 34,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"size\": 1000000\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"]
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
             }
           },
           "event": [
@@ -450,16 +611,30 @@
           "name": "POST /orders — LIMIT sin price -> 400",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 34,\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"]
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
             }
           },
           "event": [
@@ -467,7 +642,9 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('400', () => pm.response.to.have.status(400));"]
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
               }
             }
           ]
@@ -483,9 +660,16 @@
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/orders/{{limitOrderId}}/cancel",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders", "{{limitOrderId}}", "cancel"]
+              "raw": "{{baseUrl}}/v1/orders/{{limitOrderId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "{{limitOrderId}}",
+                "cancel"
+              ]
             }
           },
           "event": [
@@ -511,9 +695,16 @@
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/orders/{{limitOrderId}}/cancel",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders", "{{limitOrderId}}", "cancel"]
+              "raw": "{{baseUrl}}/v1/orders/{{limitOrderId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "{{limitOrderId}}",
+                "cancel"
+              ]
             }
           },
           "event": [
@@ -521,7 +712,9 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('400', () => pm.response.to.have.status(400));"]
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
               }
             }
           ]
@@ -532,9 +725,16 @@
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/orders/999999999/cancel",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders", "999999999", "cancel"]
+              "raw": "{{baseUrl}}/v1/orders/999999999/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "999999999",
+                "cancel"
+              ]
             }
           },
           "event": [
@@ -542,7 +742,9 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('404', () => pm.response.to.have.status(404));"]
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
               }
             }
           ]
@@ -556,16 +758,31 @@
           "name": "POST /orders/cash — CASH_IN 50000 (fondear user 2)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 2,\n  \"side\": \"CASH_IN\",\n  \"amount\": 50000\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders/cash",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders", "cash"]
+              "raw": "{{baseUrl}}/v1/orders/cash",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "cash"
+              ]
             }
           },
           "event": [
@@ -590,16 +807,31 @@
           "name": "POST /orders/cash — CASH_OUT sin disponible -> REJECTED",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 2,\n  \"side\": \"CASH_OUT\",\n  \"amount\": 999999999\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders/cash",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders", "cash"]
+              "raw": "{{baseUrl}}/v1/orders/cash",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "cash"
+              ]
             }
           },
           "event": [
@@ -621,16 +853,30 @@
           "name": "POST /orders — ahora sí puede comprar (recién fondeado)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 2,\n  \"instrumentId\": 34,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"size\": 5\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"]
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
             }
           },
           "event": [
@@ -663,10 +909,20 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/orders?userId=1",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"],
-              "query": [{ "key": "userId", "value": "1" }]
+              "raw": "{{baseUrl}}/v1/orders?userId=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "1"
+                }
+              ]
             }
           },
           "event": [
@@ -692,12 +948,23 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/orders?userId=1&status=FILLED",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"],
+              "raw": "{{baseUrl}}/v1/orders?userId=1&status=FILLED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ],
               "query": [
-                { "key": "userId", "value": "1" },
-                { "key": "status", "value": "FILLED" }
+                {
+                  "key": "userId",
+                  "value": "1"
+                },
+                {
+                  "key": "status",
+                  "value": "FILLED"
+                }
               ]
             }
           },
@@ -722,13 +989,27 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/orders?userId=1&page=2&limit=5",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"],
+              "raw": "{{baseUrl}}/v1/orders?userId=1&page=2&limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ],
               "query": [
-                { "key": "userId", "value": "1" },
-                { "key": "page", "value": "2" },
-                { "key": "limit", "value": "5" }
+                {
+                  "key": "userId",
+                  "value": "1"
+                },
+                {
+                  "key": "page",
+                  "value": "2"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
               ]
             }
           },
@@ -755,9 +1036,14 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders"]
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
             }
           },
           "event": [
@@ -765,7 +1051,9 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('400', () => pm.response.to.have.status(400));"]
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
               }
             }
           ]
@@ -810,18 +1098,34 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 2,\n  \"side\": \"CASH_IN\",\n  \"amount\": 1000\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders/cash",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders", "cash"]
+              "raw": "{{baseUrl}}/v1/orders/cash",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "cash"
+              ]
             }
           }
         },
@@ -830,18 +1134,34 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"userId\": 2,\n  \"side\": \"CASH_IN\",\n  \"amount\": 1000\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/orders/cash",
-              "host": ["{{baseUrl}}"],
-              "path": ["orders", "cash"]
+              "raw": "{{baseUrl}}/v1/orders/cash",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "cash"
+              ]
             }
           },
           "event": [

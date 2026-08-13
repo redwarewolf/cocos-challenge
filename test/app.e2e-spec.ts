@@ -1,4 +1,8 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
@@ -19,6 +23,9 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    // mismo setup que main.ts — createNestApplication() no corre bootstrap(), así que
+    // hay que repetir acá el versionado, los pipes y Swagger (para poder testear /docs-json).
+    app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -26,8 +33,6 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         transform: true,
       }),
     );
-    // mismo setup que main.ts — createNestApplication() no corre bootstrap(), así que
-    // hay que registrar Swagger acá también para poder testear /docs-json.
     const swaggerDocument = SwaggerModule.createDocument(
       app,
       new DocumentBuilder().build(),
@@ -58,11 +63,11 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       const res = await request(app.getHttpServer()).get('/docs-json');
 
       expect(res.status).toBe(200);
-      expect(res.body.paths).toHaveProperty('/orders');
-      expect(res.body.paths).toHaveProperty('/orders/cash');
-      expect(res.body.paths).toHaveProperty('/orders/{id}/cancel');
-      expect(res.body.paths).toHaveProperty('/portfolio/{userId}');
-      expect(res.body.paths).toHaveProperty('/instruments/search');
+      expect(res.body.paths).toHaveProperty('/v1/orders');
+      expect(res.body.paths).toHaveProperty('/v1/orders/cash');
+      expect(res.body.paths).toHaveProperty('/v1/orders/{id}/cancel');
+      expect(res.body.paths).toHaveProperty('/v1/portfolio/{userId}');
+      expect(res.body.paths).toHaveProperty('/v1/instruments/search');
       expect(res.body.paths).toHaveProperty('/health');
     });
   });
@@ -70,7 +75,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
   describe('GET /instruments/search (paginado)', () => {
     it('busca por ticker y devuelve el envelope paginado', async () => {
       const res = await request(app.getHttpServer())
-        .get('/instruments/search')
+        .get('/v1/instruments/search')
         .query({ q: 'ggal' });
 
       expect(res.status).toBe(200);
@@ -85,7 +90,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('busca por nombre', async () => {
       const res = await request(app.getHttpServer())
-        .get('/instruments/search')
+        .get('/v1/instruments/search')
         .query({ q: 'banco', limit: 100 });
 
       expect(res.status).toBe(200);
@@ -95,10 +100,10 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('pagina: page=1&limit=2 devuelve solo 2, page=2&limit=2 devuelve el resto sin repetir', async () => {
       const page1 = await request(app.getHttpServer())
-        .get('/instruments/search')
+        .get('/v1/instruments/search')
         .query({ q: 'banco', page: 1, limit: 2 });
       const page2 = await request(app.getHttpServer())
-        .get('/instruments/search')
+        .get('/v1/instruments/search')
         .query({ q: 'banco', page: 2, limit: 2 });
 
       expect(page1.body).toMatchObject({ total: 4, page: 1, limit: 2 });
@@ -117,7 +122,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('excluye el instrumento MONEDA aunque matchee', async () => {
       const res = await request(app.getHttpServer())
-        .get('/instruments/search')
+        .get('/v1/instruments/search')
         .query({ q: 'ars' });
 
       expect(res.status).toBe(200);
@@ -126,7 +131,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('devuelve una página vacía si no hay resultados', async () => {
       const res = await request(app.getHttpServer())
-        .get('/instruments/search')
+        .get('/v1/instruments/search')
         .query({ q: 'zzzz' });
 
       expect(res.status).toBe(200);
@@ -134,14 +139,16 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('responde 400 si falta el query param "q"', async () => {
-      const res = await request(app.getHttpServer()).get('/instruments/search');
+      const res = await request(app.getHttpServer()).get(
+        '/v1/instruments/search',
+      );
 
       expect(res.status).toBe(400);
     });
 
     it('responde 400 si limit supera el máximo permitido (100)', async () => {
       const res = await request(app.getHttpServer())
-        .get('/instruments/search')
+        .get('/v1/instruments/search')
         .query({ q: 'ggal', limit: 101 });
 
       expect(res.status).toBe(400);
@@ -149,7 +156,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('responde 400 si page no es un entero positivo', async () => {
       const res = await request(app.getHttpServer())
-        .get('/instruments/search')
+        .get('/v1/instruments/search')
         .query({ q: 'ggal', page: 0 });
 
       expect(res.status).toBe(400);
@@ -158,7 +165,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
   describe('GET /portfolio/:userId (estado inicial del seed)', () => {
     it('usuario 1 arranca con el cash del seed y sin posiciones', async () => {
-      const res = await request(app.getHttpServer()).get('/portfolio/1');
+      const res = await request(app.getHttpServer()).get('/v1/portfolio/1');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -170,7 +177,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('usuario 2 arranca en cero (sin CASH_IN en el seed)', async () => {
-      const res = await request(app.getHttpServer()).get('/portfolio/2');
+      const res = await request(app.getHttpServer()).get('/v1/portfolio/2');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -182,7 +189,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('responde 404 si el usuario no existe', async () => {
-      const res = await request(app.getHttpServer()).get('/portfolio/999');
+      const res = await request(app.getHttpServer()).get('/v1/portfolio/999');
 
       expect(res.status).toBe(404);
     });
@@ -190,7 +197,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
   describe('POST /orders — validaciones de input', () => {
     it('400 si una orden LIMIT no manda price', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'BUY',
@@ -202,7 +209,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('400 si manda "size" y "amount" a la vez', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'BUY',
@@ -215,7 +222,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('400 al operar sobre el instrumento MONEDA', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 1,
         side: 'BUY',
@@ -227,7 +234,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('404 si el instrumento no existe', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 999,
         side: 'BUY',
@@ -239,7 +246,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('404 si el usuario no existe', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 999,
         instrumentId: 2,
         side: 'BUY',
@@ -253,7 +260,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
   describe('POST /orders y PATCH /orders/:id/cancel — flujo completo', () => {
     it('MARKET BUY se llena inmediatamente al último close', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'BUY',
@@ -272,7 +279,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     let limitOrderId: number;
 
     it('LIMIT BUY queda NEW con el precio enviado (no el de mercado)', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'BUY',
@@ -287,7 +294,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('MARKET SELL de una cantidad que sí tiene se llena', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'SELL',
@@ -300,7 +307,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('MARKET SELL de más de lo que tiene queda REJECTED (pero se persiste)', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'SELL',
@@ -313,7 +320,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('MARKET BUY sin fondos (usuario 2) queda REJECTED', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 2,
         instrumentId: 2,
         side: 'BUY',
@@ -327,7 +334,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('BUY MARKET por "amount" calcula el size máximo entero', async () => {
       // 900 de close, 2000 de amount -> floor(2000/900) = 2 acciones
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'BUY',
@@ -345,7 +352,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('cancela la orden LIMIT que quedó NEW', async () => {
       const res = await request(app.getHttpServer()).patch(
-        `/orders/${limitOrderId}/cancel`,
+        `/v1/orders/${limitOrderId}/cancel`,
       );
 
       expect(res.status).toBe(200);
@@ -354,7 +361,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('no permite cancelar una orden que no está NEW', async () => {
       const res = await request(app.getHttpServer()).patch(
-        `/orders/${limitOrderId}/cancel`,
+        `/v1/orders/${limitOrderId}/cancel`,
       );
 
       expect(res.status).toBe(400);
@@ -362,7 +369,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('404 al cancelar una orden inexistente', async () => {
       const res = await request(app.getHttpServer()).patch(
-        '/orders/999999/cancel',
+        '/v1/orders/999999/cancel',
       );
 
       expect(res.status).toBe(404);
@@ -372,7 +379,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
   describe('POST /orders/cash — fondear y retirar (usuario 2, arranca en $0)', () => {
     it('CASH_IN funda al usuario y se refleja en el portfolio', async () => {
       const res = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .send({ userId: 2, side: 'CASH_IN', amount: 50000 });
 
       expect(res.status).toBe(201);
@@ -382,13 +389,15 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         size: 50000,
       });
 
-      const portfolio = await request(app.getHttpServer()).get('/portfolio/2');
+      const portfolio = await request(app.getHttpServer()).get(
+        '/v1/portfolio/2',
+      );
       expect(portfolio.body.availableCash).toBe(50000);
     });
 
     it('CASH_OUT por más de lo disponible queda REJECTED (pero se persiste)', async () => {
       const res = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .send({ userId: 2, side: 'CASH_OUT', amount: 200000 });
 
       expect(res.status).toBe(201);
@@ -397,18 +406,20 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('CASH_OUT dentro de lo disponible se llena y descuenta del portfolio', async () => {
       const res = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .send({ userId: 2, side: 'CASH_OUT', amount: 20000 });
 
       expect(res.status).toBe(201);
       expect(res.body).toMatchObject({ status: 'FILLED' });
 
-      const portfolio = await request(app.getHttpServer()).get('/portfolio/2');
+      const portfolio = await request(app.getHttpServer()).get(
+        '/v1/portfolio/2',
+      );
       expect(portfolio.body.availableCash).toBe(30000);
     });
 
     it('con el cash recién fondeado, el usuario ya puede comprar', async () => {
-      const res = await request(app.getHttpServer()).post('/orders').send({
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 2,
         instrumentId: 2,
         side: 'BUY',
@@ -426,7 +437,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('400 si el amount no es positivo', async () => {
       const res = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .send({ userId: 2, side: 'CASH_IN', amount: -100 });
 
       expect(res.status).toBe(400);
@@ -434,7 +445,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('400 si side no es CASH_IN/CASH_OUT', async () => {
       const res = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .send({ userId: 2, side: 'BUY', amount: 100 });
 
       expect(res.status).toBe(400);
@@ -442,7 +453,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('404 si el usuario no existe', async () => {
       const res = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .send({ userId: 999, side: 'CASH_IN', amount: 100 });
 
       expect(res.status).toBe(404);
@@ -451,21 +462,21 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
   describe('Concurrencia real (advisory lock por userId, Postgres real)', () => {
     it('dos BUY concurrentes que individualmente entran pero juntas no: una FILLED y la otra REJECTED', async () => {
-      const before = await request(app.getHttpServer()).get('/portfolio/1');
+      const before = await request(app.getHttpServer()).get('/v1/portfolio/1');
       const availableBefore = before.body.availableCash as number;
 
       // cada compra usa poco más de la mitad del disponible actual
       const amountEach = Math.floor(availableBefore * 0.6);
 
       const [a, b] = await Promise.all([
-        request(app.getHttpServer()).post('/orders').send({
+        request(app.getHttpServer()).post('/v1/orders').send({
           userId: 1,
           instrumentId: 2,
           side: 'BUY',
           type: 'MARKET',
           amount: amountEach,
         }),
-        request(app.getHttpServer()).post('/orders').send({
+        request(app.getHttpServer()).post('/v1/orders').send({
           userId: 1,
           instrumentId: 2,
           side: 'BUY',
@@ -477,26 +488,26 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       const statuses = [a.body.status, b.body.status].sort();
       expect(statuses).toEqual(['FILLED', 'REJECTED']);
 
-      const after = await request(app.getHttpServer()).get('/portfolio/1');
+      const after = await request(app.getHttpServer()).get('/v1/portfolio/1');
       expect(after.body.availableCash).toBeGreaterThanOrEqual(0);
     });
 
     it('dos SELL concurrentes que individualmente entran pero juntas no: una FILLED y la otra REJECTED', async () => {
-      const before = await request(app.getHttpServer()).get('/portfolio/1');
+      const before = await request(app.getHttpServer()).get('/v1/portfolio/1');
       const position = before.body.positions.find(
         (p: { instrumentId: number }) => p.instrumentId === 2,
       );
       const quantityEach = Math.floor(position.quantity * 0.6);
 
       const [a, b] = await Promise.all([
-        request(app.getHttpServer()).post('/orders').send({
+        request(app.getHttpServer()).post('/v1/orders').send({
           userId: 1,
           instrumentId: 2,
           side: 'SELL',
           type: 'MARKET',
           size: quantityEach,
         }),
-        request(app.getHttpServer()).post('/orders').send({
+        request(app.getHttpServer()).post('/v1/orders').send({
           userId: 1,
           instrumentId: 2,
           side: 'SELL',
@@ -508,7 +519,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       const statuses = [a.body.status, b.body.status].sort();
       expect(statuses).toEqual(['FILLED', 'REJECTED']);
 
-      const after = await request(app.getHttpServer()).get('/portfolio/1');
+      const after = await request(app.getHttpServer()).get('/v1/portfolio/1');
       const positionAfter = after.body.positions.find(
         (p: { instrumentId: number }) => p.instrumentId === 2,
       );
@@ -516,7 +527,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
 
     it('dos CASH_OUT concurrentes que individualmente entran pero juntos no: uno FILLED y el otro REJECTED', async () => {
-      const before = await request(app.getHttpServer()).get('/portfolio/2');
+      const before = await request(app.getHttpServer()).get('/v1/portfolio/2');
       const availableBefore = before.body.availableCash as number;
 
       // cada retiro usa poco más de la mitad del disponible actual
@@ -524,17 +535,17 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
       const [a, b] = await Promise.all([
         request(app.getHttpServer())
-          .post('/orders/cash')
+          .post('/v1/orders/cash')
           .send({ userId: 2, side: 'CASH_OUT', amount: amountEach }),
         request(app.getHttpServer())
-          .post('/orders/cash')
+          .post('/v1/orders/cash')
           .send({ userId: 2, side: 'CASH_OUT', amount: amountEach }),
       ]);
 
       const statuses = [a.body.status, b.body.status].sort();
       expect(statuses).toEqual(['FILLED', 'REJECTED']);
 
-      const after = await request(app.getHttpServer()).get('/portfolio/2');
+      const after = await request(app.getHttpServer()).get('/v1/portfolio/2');
       expect(after.body.availableCash).toBeGreaterThanOrEqual(0);
     });
   });
@@ -542,21 +553,21 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
   describe('GET /orders — historial paginado (corre al final, con todo lo generado por los tests anteriores)', () => {
     it('404 si el usuario no existe', async () => {
       const res = await request(app.getHttpServer())
-        .get('/orders')
+        .get('/v1/orders')
         .query({ userId: 999 });
 
       expect(res.status).toBe(404);
     });
 
     it('400 si falta userId', async () => {
-      const res = await request(app.getHttpServer()).get('/orders');
+      const res = await request(app.getHttpServer()).get('/v1/orders');
 
       expect(res.status).toBe(400);
     });
 
     it('400 si status no es un valor válido', async () => {
       const res = await request(app.getHttpServer())
-        .get('/orders')
+        .get('/v1/orders')
         .query({ userId: 1, status: 'NOT_A_STATUS' });
 
       expect(res.status).toBe(400);
@@ -564,7 +575,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('devuelve solo órdenes del usuario pedido, ordenadas por datetime descendente', async () => {
       const res = await request(app.getHttpServer())
-        .get('/orders')
+        .get('/v1/orders')
         .query({ userId: 1, limit: 100 });
 
       expect(res.status).toBe(200);
@@ -584,7 +595,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     it('filtra por status: todo lo que devuelve tiene ese status exacto', async () => {
       // orden fresca y determinística en REJECTED, para no depender de que los tests
       // anteriores hayan dejado alguna orden en ese estado.
-      await request(app.getHttpServer()).post('/orders').send({
+      await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'SELL',
@@ -593,7 +604,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       });
 
       const res = await request(app.getHttpServer())
-        .get('/orders')
+        .get('/v1/orders')
         .query({ userId: 1, status: 'REJECTED', limit: 100 });
 
       expect(res.status).toBe(200);
@@ -605,10 +616,10 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('pagina sin solapamiento entre páginas', async () => {
       const page1 = await request(app.getHttpServer())
-        .get('/orders')
+        .get('/v1/orders')
         .query({ userId: 1, page: 1, limit: 3 });
       const page2 = await request(app.getHttpServer())
-        .get('/orders')
+        .get('/v1/orders')
         .query({ userId: 1, page: 2, limit: 3 });
 
       expect(page1.body.total).toBe(page2.body.total);
@@ -624,7 +635,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     it('reintento secuencial con la misma key en POST /orders/cash devuelve la misma orden, sin duplicarla en la DB', async () => {
       const key = 'e2e-cash-key-1';
       const first = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .set('Idempotency-Key', key)
         .send({ userId: 2, side: 'CASH_IN', amount: 1234 });
 
@@ -633,7 +644,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(first.body.idempotencyKey).toBe(key);
 
       const second = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .set('Idempotency-Key', key)
         .send({ userId: 2, side: 'CASH_IN', amount: 1234 });
 
@@ -641,7 +652,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(second.body.id).toBe(first.body.id);
 
       const history = await request(app.getHttpServer())
-        .get('/orders')
+        .get('/v1/orders')
         .query({ userId: 2, limit: 100 });
       const matching = history.body.data.filter(
         (o: { id: number }) => o.id === first.body.id,
@@ -651,10 +662,10 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('sin Idempotency-Key, cada request crea una orden nueva (aunque el body sea idéntico)', async () => {
       const a = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .send({ userId: 2, side: 'CASH_IN', amount: 1 });
       const b = await request(app.getHttpServer())
-        .post('/orders/cash')
+        .post('/v1/orders/cash')
         .send({ userId: 2, side: 'CASH_IN', amount: 1 });
 
       expect(a.status).toBe(201);
@@ -667,11 +678,11 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
       const [a, b] = await Promise.all([
         request(app.getHttpServer())
-          .post('/orders/cash')
+          .post('/v1/orders/cash')
           .set('Idempotency-Key', key)
           .send({ userId: 2, side: 'CASH_IN', amount: 777 }),
         request(app.getHttpServer())
-          .post('/orders/cash')
+          .post('/v1/orders/cash')
           .set('Idempotency-Key', key)
           .send({ userId: 2, side: 'CASH_IN', amount: 777 }),
       ]);
@@ -681,7 +692,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(a.body.id).toBe(b.body.id);
 
       const history = await request(app.getHttpServer())
-        .get('/orders')
+        .get('/v1/orders')
         .query({ userId: 2, limit: 100 });
       const matching = history.body.data.filter(
         (o: { id: number }) => o.id === a.body.id,
@@ -693,7 +704,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       const key = 'e2e-orders-key-1';
 
       const first = await request(app.getHttpServer())
-        .post('/orders')
+        .post('/v1/orders')
         .set('Idempotency-Key', key)
         .send({
           userId: 1,
@@ -704,7 +715,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         });
 
       const second = await request(app.getHttpServer())
-        .post('/orders')
+        .post('/v1/orders')
         .set('Idempotency-Key', key)
         .send({
           userId: 1,

@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
@@ -11,6 +11,12 @@ async function bootstrap() {
   // también salen formateados por pino en vez de perderse con el logger default.
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
+
+  // Versionado por URI (issue #34): todas las rutas quedan bajo /v1/... salvo las que
+  // declaren explícitamente VERSION_NEUTRAL (ver HealthController). /docs y /docs-json
+  // no pasan por acá: SwaggerModule los monta aparte, no como rutas de un controller.
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
