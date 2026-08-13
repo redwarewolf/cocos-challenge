@@ -205,11 +205,11 @@ duplicar el cálculo de "disponible" en dos lugares.
 **Concurrencia**: como no hay una tabla de balances/posiciones (todo se deriva de `orders` en cada
 request), dos órdenes del mismo usuario enviadas casi simultáneamente podrían leer el mismo
 "disponible" antes de que ninguna se hubiera guardado, pasar la validación las dos, y terminar
-gastando más pesos o vendiendo más acciones de las que el usuario realmente tiene. `OrdersService.create`
-envuelve la lectura del disponible + el insert de la orden en una transacción con
-`pg_advisory_xact_lock(userId)` (`src/orders/orders.service.ts`), serializando toda creación de
-órdenes/movimientos de un mismo usuario (BUY/SELL de cualquier instrumento, o CASH_IN/CASH_OUT) sin
-bloquear a otros usuarios entre sí. No hace falta lockear entre usuarios distintos ni "emparejar"
+gastando más pesos o vendiendo más acciones de las que el usuario realmente tiene. `IdempotentOrderWriter`
+(`src/orders/idempotent-order-writer.ts`) envuelve el cálculo del disponible + el insert de la orden
+en una transacción con `pg_advisory_xact_lock(userId)` (vía `AdvisoryLock`, ver "Descomposición de
+`OrdersService`" más abajo), serializando toda creación de órdenes/movimientos de un mismo usuario
+(BUY/SELL de cualquier instrumento, o CASH_IN/CASH_OUT) sin bloquear a otros usuarios entre sí. No hace falta lockear entre usuarios distintos ni "emparejar"
 compra con venta: el challenge aclara que no hace falta simular el mercado, así que cada orden se
 ejecuta unilateralmente contra `marketdata.close` (liquidez asumida infinita), no contra la orden de
 otro usuario. Verificado tanto a mano contra la base real como con un test e2e automatizado
@@ -223,8 +223,8 @@ columna `idempotencykey` en `orders`, nullable y `UNIQUE` (migración aditiva
 `AddOrdersIdempotencyKey`), en vez de una tabla aparte de claves de idempotencia — con un solo campo
 extra alcanza para el alcance de este challenge, y la propia constraint `UNIQUE` de Postgres resuelve
 la atomicidad sin necesitar lógica de estado propia (dos `NULL` nunca "chocan" entre sí, así que no
-afecta a los requests sin key). Si viene la key, `OrdersService` primero busca una orden ya guardada
-con ese valor — caso común, el cliente reintentó tras un timeout sin recibir la respuesta original —
+afecta a los requests sin key). Si viene la key, `IdempotentOrderWriter` primero busca una orden ya
+guardada con ese valor — caso común, el cliente reintentó tras un timeout sin recibir la respuesta original —
 y si existe la devuelve directamente, sin volver a ejecutar la orden ni tomar el lock del usuario. El
 caso más raro (dos requests con la misma key llegando casi al mismo tiempo) se resuelve a nivel SQL,
 no con una excepción: el insert usa `ON CONFLICT DO NOTHING` (`.orIgnore()` de TypeORM) en vez de un
@@ -307,6 +307,26 @@ decorar y `/docs` no podía mostrar más que la `description` en texto libre. No
 mapeo: los services siguen devolviendo la entidad/interface tal cual (estructuralmente idéntica al
 DTO), así que no hay riesgo de que la respuesta real y lo documentado en Swagger diverjan.
 
+**Descomposición de `OrdersService`** (issue #35): `OrdersService` mezclaba cuatro
+responsabilidades — orquestación, idempotencia, el advisory lock, y las reglas de precio/size/status
+de `BUY`/`SELL` — en un solo archivo de 337 líneas. Se separó en tres colaboradores con una
+responsabilidad cada uno:
+
+- `AdvisoryLock` (`src/database/`): el primitivo de lock por key, sin saber nada de órdenes — para
+  que cualquier otra feature futura que necesite serializar por `userId` (o cualquier otra key
+  numérica) lo reuse, en vez de reimplementarlo.
+- `OrderPricingService`: `resolvePrice`/`resolveSize`/`resolveStatus`, las reglas específicas de
+  `BUY`/`SELL` (`createCashMovement` no las usa).
+- `IdempotentOrderWriter`: la idempotencia y el guardado (`ON CONFLICT DO NOTHING`), sin saber qué
+  tipo de orden está guardando — recibe una función que calcula los datos bajo el lock.
+
+`OrdersService` queda como orquestación pura: valida el input, junta lo que hace falta (usuario,
+instrumento), y delega. El beneficio más concreto es en los tests: antes, probar una regla de precio
+puntual (ej. el redondeo de un `LIMIT`) requería armar el mock completo de
+`dataSource.transaction`/`createQueryBuilder`; ahora `order-pricing.service.spec.ts` la prueba con
+un mock de `ValuationService` nada más. La cobertura de `src/` pasó de ~99% a 100% de statements
+como efecto directo de que cada pieza se volvió más fácil de testear de forma aislada.
+
 ## Testing
 
 ```bash
@@ -315,22 +335,23 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 95 tests): uno por servicio (`OrdersService`, `ValuationService`,
-`PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
-repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
-compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
+**Unit tests** (`src/**/*.spec.ts`, 103 tests): uno por servicio/colaborador y uno por controller,
+con los repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la
+base compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
 controller solo verifican la delegación (que llaman al método del service correcto con los
-argumentos correctos); la lógica de negocio real vive y se testea en los services.
-`orders.service.spec.ts` es el test funcional que pide el challenge sobre el envío de órdenes: cubre
-MARKET/LIMIT, cálculo de `size` desde `amount`, rechazo por fondos/tenencia insuficientes,
-validaciones de input, cancelación, y que el advisory lock se pida (con el `userId` correcto) antes
-de leer el disponible. `collectCoverageFrom` (en `package.json`) excluye a propósito `*.module.ts`,
+argumentos correctos); la lógica de negocio real vive y se testea en los services. El test funcional
+que pide el challenge sobre el envío de órdenes queda repartido según responsabilidad (issue #35):
+`order-pricing.service.spec.ts` cubre MARKET/LIMIT, cálculo de `size` desde `amount`, y rechazo por
+fondos/tenencia insuficientes; `idempotent-order-writer.spec.ts` y `advisory-lock.spec.ts` cubren la
+idempotencia y que el lock se pida antes de ejecutar; `orders.service.spec.ts` cubre la orquestación
+(validaciones de input, 404s, cancelación) sin necesitar mockear transacciones ni query builders.
+`collectCoverageFrom` (en `package.json`) excluye a propósito `*.module.ts`,
 `main.ts`, `data-source.ts`, `database/migrations/**`, `database/entities/**` y `**/dto/**`: son
 archivos declarativos (decorators de Nest/TypeORM/class-validator, wiring de DI, SQL de migración),
 sin ramas ni cómputo que un unit test pueda ejercitar de forma significativa — están cubiertos igual,
 pero por los e2e (que sí bootean la app entera) o, en el caso de la migración, por haberla corrido
 contra la DB real. Con esa exclusión, `npm run test:cov` reporta cobertura solo de `services` y
-`controllers` (la lógica real): ~99% statements / ~85% branches / 100% functions / ~99% lines,
+`controllers` (la lógica real): 100% statements / ~85% branches / 100% functions / 100% lines,
 con un `coverageThreshold` en `package.json` un poco por debajo de eso para detectar regresiones sin
 ser un número arbitrario.
 
@@ -395,10 +416,14 @@ src/
     entities/      # User, Instrument, Order, MarketData — mapeadas 1:1 a las columnas reales
     migrations/     # única fuente de verdad del esquema: InitialSchema + índices aditivos
     data-source.ts  # DataSource compartido (Nest + CLI de migraciones)
+    advisory-lock.ts # AdvisoryLock: primitivo de lock por key, genérico (no específico de orders) + .spec
   valuation/        # ValuationService: cash disponible + posiciones (compartido) + .spec
   portfolio/        # GET /portfolio/:userId + .spec
   instruments/      # GET /instruments/search + .spec
   orders/           # POST /orders, POST /orders/cash, GET /orders, PATCH /orders/:id/cancel + .spec
+    orders.service.ts           # orquestación pura: valida, delega en los colaboradores de abajo
+    order-pricing.service.ts    # reglas de precio/size/status de BUY/SELL + .spec
+    idempotent-order-writer.ts  # idempotencia + guardado (usa AdvisoryLock) + .spec
   health/           # GET /health (readiness: pinguea la DB) + .spec
 test/
   app.e2e-spec.ts   # e2e de los 4 endpoints contra Postgres real (Testcontainers)
