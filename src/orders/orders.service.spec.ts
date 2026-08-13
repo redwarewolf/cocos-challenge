@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
+import { QueryFailedError } from 'typeorm';
 import {
   Instrument,
   InstrumentType,
@@ -441,6 +442,127 @@ describe('OrdersService (functional: envío de órdenes)', () => {
       orderRepository.findOne.mockResolvedValue(null);
 
       await expect(service.cancel(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('idempotencia (issue #8)', () => {
+    beforeEach(() => {
+      valuationService.getLastClose.mockResolvedValue(900);
+      valuationService.getAvailableCash.mockResolvedValue(100_000);
+    });
+
+    it('sin Idempotency-Key, crea la orden normalmente con idempotencyKey null', async () => {
+      const order = await service.create({
+        userId: 1,
+        instrumentId: 34,
+        side: OrderSide.BUY,
+        type: OrderType.MARKET,
+        size: 10,
+      });
+
+      expect(orderRepository.findOne).not.toHaveBeenCalled();
+      expect(order.idempotencyKey).toBeNull();
+    });
+
+    it('con una Idempotency-Key nunca vista, crea la orden y la guarda con esa key', async () => {
+      orderRepository.findOne.mockResolvedValue(null);
+
+      const order = await service.create(
+        {
+          userId: 1,
+          instrumentId: 34,
+          side: OrderSide.BUY,
+          type: OrderType.MARKET,
+          size: 10,
+        },
+        'key-1',
+      );
+
+      expect(orderRepository.findOne).toHaveBeenCalledWith({
+        where: { idempotencyKey: 'key-1' },
+      });
+      expect(order.idempotencyKey).toBe('key-1');
+      expect(dataSource.transaction).toHaveBeenCalled();
+    });
+
+    it('reintento con la misma Idempotency-Key devuelve la orden ya creada, sin duplicar', async () => {
+      const existing = { id: 100, idempotencyKey: 'key-1' } as Order;
+      orderRepository.findOne.mockResolvedValue(existing);
+
+      const order = await service.create(
+        {
+          userId: 1,
+          instrumentId: 34,
+          side: OrderSide.BUY,
+          type: OrderType.MARKET,
+          size: 10,
+        },
+        'key-1',
+      );
+
+      expect(order).toBe(existing);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('dos requests concurrentes con la misma key: la que pierde la carrera de UNIQUE devuelve la fila ganadora en vez de fallar', async () => {
+      const winner = { id: 100, idempotencyKey: 'key-1' } as Order;
+      orderRepository.findOne
+        .mockResolvedValueOnce(null) // chequeo inicial: todavía no existe
+        .mockResolvedValueOnce(winner); // se recupera después del choque de UNIQUE
+
+      const uniqueViolation = new QueryFailedError('INSERT ...', [], {
+        code: '23505',
+      } as never);
+      dataSource.transaction.mockImplementationOnce(() =>
+        Promise.reject(uniqueViolation),
+      );
+
+      const order = await service.create(
+        {
+          userId: 1,
+          instrumentId: 34,
+          side: OrderSide.BUY,
+          type: OrderType.MARKET,
+          size: 10,
+        },
+        'key-1',
+      );
+
+      expect(order).toBe(winner);
+    });
+
+    it('propaga otros errores de transacción sin tratarlos como duplicado', async () => {
+      orderRepository.findOne.mockResolvedValue(null);
+      dataSource.transaction.mockImplementationOnce(() =>
+        Promise.reject(new Error('boom')),
+      );
+
+      await expect(
+        service.create(
+          {
+            userId: 1,
+            instrumentId: 34,
+            side: OrderSide.BUY,
+            type: OrderType.MARKET,
+            size: 10,
+          },
+          'key-1',
+        ),
+      ).rejects.toThrow('boom');
+    });
+
+    it('createCashMovement también respeta la Idempotency-Key', async () => {
+      valuationService.getCashInstrument.mockResolvedValue(cash);
+      const existing = { id: 200, idempotencyKey: 'cash-key' } as Order;
+      orderRepository.findOne.mockResolvedValue(existing);
+
+      const order = await service.createCashMovement(
+        { userId: 1, side: OrderSide.CASH_IN, amount: 1000 },
+        'cash-key',
+      );
+
+      expect(order).toBe(existing);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
     });
   });
 });

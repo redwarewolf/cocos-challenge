@@ -2,13 +2,20 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Patch,
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiHeader,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import {
   Paginated,
   PaginatedResponseDto,
@@ -26,6 +33,12 @@ export class OrdersController {
 
   @Post()
   @ApiOperation({ summary: 'Envía una orden de compra/venta (MARKET o LIMIT)' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description:
+      'Si se repite un request con la misma key, devuelve la orden ya creada en vez de duplicarla',
+  })
   @ApiResponse({
     status: 201,
     description: 'Orden creada (FILLED, NEW o REJECTED según corresponda)',
@@ -36,14 +49,23 @@ export class OrdersController {
     status: 404,
     description: 'Usuario o instrumento inexistente',
   })
-  create(@Body() dto: CreateOrderDto): Promise<OrderResponseDto> {
-    return this.ordersService.create(dto);
+  create(
+    @Body() dto: CreateOrderDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<OrderResponseDto> {
+    return this.ordersService.create(dto, idempotencyKey);
   }
 
   @Post('cash')
   @ApiOperation({
     summary:
       'Deposita (CASH_IN) o retira (CASH_OUT) pesos de la cuenta de un usuario',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description:
+      'Si se repite un request con la misma key, devuelve el movimiento ya creado en vez de duplicarlo',
   })
   @ApiResponse({
     status: 201,
@@ -54,8 +76,9 @@ export class OrdersController {
   @ApiResponse({ status: 404, description: 'Usuario inexistente' })
   createCashMovement(
     @Body() dto: CreateCashMovementDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
-    return this.ordersService.createCashMovement(dto);
+    return this.ordersService.createCashMovement(dto, idempotencyKey);
   }
 
   @Get()

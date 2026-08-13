@@ -37,10 +37,25 @@ describe('OrdersController', () => {
     const created = { id: 1, ...dto, status: 'FILLED' };
     ordersService.create.mockResolvedValue(created);
 
-    const result = await controller.create(dto);
+    const result = await controller.create(dto, undefined);
 
-    expect(ordersService.create).toHaveBeenCalledWith(dto);
+    expect(ordersService.create).toHaveBeenCalledWith(dto, undefined);
     expect(result).toBe(created);
+  });
+
+  it('create() reenvía el header Idempotency-Key al service', async () => {
+    const dto: CreateOrderDto = {
+      userId: 1,
+      instrumentId: 34,
+      side: OrderSide.BUY,
+      type: OrderType.MARKET,
+      size: 10,
+    };
+    ordersService.create.mockResolvedValue({ id: 1, ...dto });
+
+    await controller.create(dto, 'key-1');
+
+    expect(ordersService.create).toHaveBeenCalledWith(dto, 'key-1');
   });
 
   it('createCashMovement() delega en OrdersService.createCashMovement() con el DTO recibido', async () => {
@@ -52,10 +67,29 @@ describe('OrdersController', () => {
     const created = { id: 2, ...dto, status: 'FILLED' };
     ordersService.createCashMovement.mockResolvedValue(created);
 
-    const result = await controller.createCashMovement(dto);
+    const result = await controller.createCashMovement(dto, undefined);
 
-    expect(ordersService.createCashMovement).toHaveBeenCalledWith(dto);
+    expect(ordersService.createCashMovement).toHaveBeenCalledWith(
+      dto,
+      undefined,
+    );
     expect(result).toBe(created);
+  });
+
+  it('createCashMovement() reenvía el header Idempotency-Key al service', async () => {
+    const dto: CreateCashMovementDto = {
+      userId: 1,
+      side: OrderSide.CASH_IN,
+      amount: 100000,
+    };
+    ordersService.createCashMovement.mockResolvedValue({ id: 2, ...dto });
+
+    await controller.createCashMovement(dto, 'cash-key');
+
+    expect(ordersService.createCashMovement).toHaveBeenCalledWith(
+      dto,
+      'cash-key',
+    );
   });
 
   it('findAll() delega en OrdersService.findAll() con el query recibido', async () => {

@@ -159,3 +159,17 @@ GET {{baseUrl}}/orders?userId=1&page=2&limit=5
 
 ### Sin userId -> 400
 GET {{baseUrl}}/orders
+
+###
+
+### 7) (Bonus) Idempotency-Key: reintentar el mismo request con la misma key devuelve
+### la orden ya creada en vez de duplicarla (probar corriendo este bloque dos veces)
+POST {{baseUrl}}/orders/cash
+Content-Type: application/json
+Idempotency-Key: demo-key-1
+
+{
+  "userId": 2,
+  "side": "CASH_IN",
+  "amount": 1000
+}

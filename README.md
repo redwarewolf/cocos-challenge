@@ -28,7 +28,7 @@ interactiva (Swagger UI) en `http://localhost:3000/docs`, JSON crudo (OpenAPI) e
 
 ### `GET /health`
 
-Healthcheck de *readiness*, no solo liveness: pinguea la conexión real a la DB (`@nestjs/terminus` +
+Healthcheck de _readiness_, no solo liveness: pinguea la conexión real a la DB (`@nestjs/terminus` +
 `TypeOrmHealthIndicator`), que es la única dependencia externa de esta API. `200` si la DB responde,
 `503` si no.
 
@@ -41,7 +41,15 @@ Valor total de cuenta, pesos disponibles y posiciones del usuario.
   "userId": 1,
   "availableCash": 753000,
   "positions": [
-    { "instrumentId": 47, "ticker": "PAMP", "name": "Pampa Holding S.A.", "quantity": 40, "marketValue": 37034, "totalCost": 37100, "performancePct": -0.177 }
+    {
+      "instrumentId": 47,
+      "ticker": "PAMP",
+      "name": "Pampa Holding S.A.",
+      "quantity": 40,
+      "marketValue": 37034,
+      "totalCost": 37100,
+      "performancePct": -0.177
+    }
   ],
   "totalAccountValue": 904784
 }
@@ -53,7 +61,19 @@ Busca por ticker y/o nombre (case-insensitive, substring). Excluye el instrument
 Paginado: `page` (default 1) y `limit` (default 20, máximo 100). Respuesta:
 
 ```json
-{ "data": [{ "id": 34, "ticker": "GGAL", "name": "Grupo Financiero Galicia", "type": "ACCIONES" }], "total": 1, "page": 1, "limit": 20 }
+{
+  "data": [
+    {
+      "id": 34,
+      "ticker": "GGAL",
+      "name": "Grupo Financiero Galicia",
+      "type": "ACCIONES"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20
+}
 ```
 
 ### `POST /orders`
@@ -96,13 +116,24 @@ envelope de respuesta que `GET /instruments/search`.
 
 Cancela una orden en estado `NEW`. Cualquier otro estado responde `400`.
 
+### Header `Idempotency-Key` (bonus, no pedido explícitamente por el challenge)
+
+`POST /orders` y `POST /orders/cash` aceptan un header opcional `Idempotency-Key`. Si un
+cliente reintenta el mismo request (ej. por timeout de red sin haber recibido la respuesta
+original) mandando la misma key, la API devuelve la orden ya creada en vez de duplicarla —
+incluso si dos requests con la misma key llegan casi al mismo tiempo (ver detalle en
+"Decisiones de diseño" más abajo). Sin el header, cada request crea una orden nueva, como
+siempre.
+
 Ver `rest-client/requests.http` para una colección completa de ejemplos ejecutables (extensión
 [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) de VS Code).
 
 ## Decisiones de diseño y asunciones
 
-**Esquema de base de datos**: se mantiene tal cual (no se modificó ninguna tabla ni columna
-existente). `src/database/migrations` es la única fuente de verdad del esquema, con dos migraciones:
+**Esquema de base de datos**: no se modificó ni se quitó ninguna tabla o columna existente; los únicos
+cambios son aditivos. `src/database/migrations` es la única fuente de verdad del esquema, con tres
+migraciones:
+
 - `InitialSchema`: versiona el `CREATE TABLE` que Cocos ya corrió en la Neon real (con
   `IF NOT EXISTS`, así que ahí es un no-op — documenta el esquema, no lo recrea). Se agregó para que
   las migraciones sean autosuficientes: antes, correr `migration:run` contra un Postgres vacío
@@ -112,6 +143,8 @@ existente). `src/database/migrations` es la única fuente de verdad del esquema,
   queries de disponible/posiciones/último precio, que se ejecutan en cada request de portfolio y de
   envío de orden: `orders (userid, status)`, `orders (instrumentid, status)`,
   `marketdata (instrumentid, date DESC)`.
+- `AddOrdersIdempotencyKey`: agrega la columna `orders.idempotencykey` (nullable, `UNIQUE`) que
+  soporta el header `Idempotency-Key` (ver "Idempotencia" más abajo).
 
 Se corren con `npm run migration:run`. `TypeOrmModule` se configura con `synchronize: false`
 explícitamente para que el ORM nunca intente alterar el esquema por su cuenta. Los e2e corren estas
@@ -126,6 +159,7 @@ hardcodea su `id`.
 
 **Posiciones y rendimiento**: para cada instrumento (excluyendo `MONEDA`) se calcula, usando solo
 órdenes `FILLED`:
+
 - `quantity = Σ size(BUY) − Σ size(SELL)` (se omite el instrumento si el neto es `<= 0`).
 - `totalCost` (costo neto) `= Σ (size·price)(BUY) − Σ (size·price)(SELL)`: es una aproximación
   simple al costo invertido neto, no un FIFO/promedio ponderado estricto. Para el alcance del
@@ -140,6 +174,7 @@ Esta lógica vive en un único `ValuationService` (`src/valuation`), reutilizado
 duplicar el cálculo de "disponible" en dos lugares.
 
 **Envío de órdenes**:
+
 - `POST /orders` solo expone `BUY`/`SELL` — el enunciado de este endpoint pide explícitamente "una
   orden de compra o venta", así que `CASH_IN`/`CASH_OUT` viven en un endpoint aparte
   (`POST /orders/cash`, ver arriba) en vez de sobrecargar el mismo DTO con campos que no aplican a
@@ -171,6 +206,21 @@ otro usuario. Verificado tanto a mano contra la base real como con un test e2e a
 (2 BUY, 2 SELL y 2 CASH_OUT) contra un Postgres real de Testcontainers, individualmente dentro del
 disponible pero juntos no: en los tres casos uno queda `FILLED` y el otro `REJECTED`, sin que el
 disponible/tenencia queden nunca negativos.
+
+**Idempotencia** (`POST /orders` / `POST /orders/cash`, header `Idempotency-Key`): se agregó una
+columna `idempotencykey` en `orders`, nullable y `UNIQUE` (migración aditiva
+`AddOrdersIdempotencyKey`), en vez de una tabla aparte de claves de idempotencia — con un solo campo
+extra alcanza para el alcance de este challenge, y la propia constraint `UNIQUE` de Postgres resuelve
+la atomicidad sin necesitar lógica de estado propia (dos `NULL` nunca "chocan" entre sí, así que no
+afecta a los requests sin key). Si viene la key, `OrdersService` primero busca una orden ya guardada
+con ese valor — caso común, el cliente reintentó tras un timeout sin recibir la respuesta original —
+y si existe la devuelve directamente, sin volver a ejecutar la orden. El caso más raro (dos requests
+con la misma key llegando casi al mismo tiempo) se ataja distinto: las dos pueden pasar el chequeo
+inicial sin encontrar nada, pero al guardar, la constraint `UNIQUE` rechaza a la segunda con un
+`QueryFailedError` (`SQLSTATE 23505`); en vez de propagar ese error, se lo interpreta como señal de
+"alguien más ya la creó" y se devuelve la fila que sí se guardó. Verificado con tests e2e (reintento
+secuencial, sin key, y dos requests concurrentes con la misma key) contra un Postgres real de
+Testcontainers, y a mano contra la Neon real.
 
 **Precisión numérica**: `price`/`close` viajan como `string` desde `pg` (Postgres `numeric`) para no
 perder precisión al parsear; los cálculos intermedios se hacen con `Number` en JS. Para un dominio
@@ -245,7 +295,7 @@ los dos escenarios de concurrencia real (ver "Concurrencia" arriba). Nunca tocan
 container se crea y se destruye en cada corrida. Para que esto funcione, `TypeOrmModule` pasó de
 `forRoot(dataSourceOptions)` a `forRootAsync({ useFactory: buildDataSourceOptions })`
 (`src/database/data-source.ts`) — la conexión se resuelve recién cuando Nest bootea la app, no al
-importar el módulo, así el test puede pisar `DATABASE_URL`/`DB_SSL` *antes* de ese momento. En
+importar el módulo, así el test puede pisar `DATABASE_URL`/`DB_SSL` _antes_ de ese momento. En
 dev/prod normal el comportamiento no cambia.
 
 **CI** (`.github/workflows/ci.yml`): en cada push/PR a `main` corre, en este orden, lint (sin

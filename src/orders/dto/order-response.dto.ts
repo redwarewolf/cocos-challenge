@@ -37,4 +37,11 @@ export class OrderResponseDto {
 
   @ApiProperty({ example: '2024-01-01T10:00:00.000Z' })
   datetime: Date;
+
+  @ApiProperty({
+    example: null,
+    nullable: true,
+    description: 'Header Idempotency-Key con el que se creó, si se mandó uno',
+  })
+  idempotencyKey: string | null;
 }
