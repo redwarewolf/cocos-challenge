@@ -6,6 +6,7 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Paginated } from '../common/dto/paginated-response.dto';
+import { PAGE_SIZE } from '../common/pagination.constants';
 import {
   Instrument,
   InstrumentType,
@@ -128,7 +129,7 @@ export class OrdersService {
     }
 
     const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const limit = query.limit ?? PAGE_SIZE;
 
     const where: { userId: number; status?: OrderStatus } = {
       userId: query.userId,

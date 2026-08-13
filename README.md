@@ -179,7 +179,10 @@ para el volumen de un mercado real (miles de instrumentos u órdenes, no millone
 simple de consumir. El envelope `{ data, total, page, limit }` y el
 `PaginationQueryDto`/`PaginatedResponseDto` (factory de Swagger, `src/common/dto/`) se comparten
 entre `GET /instruments/search` y `GET /orders`, así que agregar un tercer endpoint paginado no
-requeriría reinventar el esquema de respuesta.
+requeriría reinventar el esquema de respuesta. El tamaño de página default es configurable por
+entorno (`PAGE_SIZE`, ver `.env.example`; default 20 si no se define); el máximo permitido por
+request queda fijo en 100 (no es una env var, es solo una protección básica) —
+`src/common/pagination.constants.ts`.
 
 **Response DTOs**: `OrderResponseDto`, `InstrumentResponseDto`, `PortfolioResponseDto` (en cada
 módulo, carpeta `dto/`) documentan con `@ApiProperty` la forma real de cada respuesta para que

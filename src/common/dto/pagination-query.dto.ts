@@ -1,9 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
-
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
+import { MAX_PAGE_SIZE, PAGE_SIZE } from '../pagination.constants';
 
 /**
  * Query params de paginación compartidos entre endpoints (búsqueda de instrumentos,
@@ -20,15 +18,15 @@ export class PaginationQueryDto {
   page?: number = 1;
 
   @ApiPropertyOptional({
-    example: 20,
-    default: DEFAULT_LIMIT,
+    example: PAGE_SIZE,
+    default: PAGE_SIZE,
     minimum: 1,
-    maximum: MAX_LIMIT,
+    maximum: MAX_PAGE_SIZE,
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(MAX_LIMIT)
-  limit?: number = DEFAULT_LIMIT;
+  @Max(MAX_PAGE_SIZE)
+  limit?: number = PAGE_SIZE;
 }
