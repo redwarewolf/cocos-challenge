@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b6f3a2d0-6c1e-4b8a-9f2a-cocos00000005",
     "name": "Cocos Challenge — Backend",
-    "description": "Colección equivalente a rest-client/requests.http, con test scripts para correr headless con Newman (npm run test:postman). Usa datos reales del seed contra la Neon real: userId 1..2, instrumentos GGAL(34), PAMP(47), ARS(66, MONEDA). Requiere el server corriendo (npm run start:dev o docker compose up) antes de ejecutarla — mismo flujo que la colección de REST Client.",
+    "description": "Colección con test scripts para correr headless con Newman (npm run test:postman). Usa datos reales del seed contra la Neon real: userId 1..2, instrumentos GGAL(34), PAMP(47), ARS(66, MONEDA). Requiere el server corriendo (npm run start:dev o docker compose up) antes de ejecutarla.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [{ "key": "baseUrl", "value": "http://localhost:3000" }],
