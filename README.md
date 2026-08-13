@@ -137,7 +137,9 @@ incluso si dos requests con la misma key llegan casi al mismo tiempo (ver detall
 siempre.
 
 Ver `rest-client/requests.http` para una colección completa de ejemplos ejecutables (extensión
-[REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) de VS Code).
+[REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) de VS Code), o
+`postman/` para la misma colección en formato Postman, con test scripts (ver "Colección Postman +
+Newman" más abajo).
 
 ## Decisiones de diseño y asunciones
 
@@ -315,7 +317,7 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 75 tests): uno por servicio (`OrdersService`, `ValuationService`,
+**Unit tests** (`src/**/*.spec.ts`, 95 tests): uno por servicio (`OrdersService`, `ValuationService`,
 `PortfolioService`, `InstrumentsService`) y uno por controller (los 3), con los
 repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la base
 compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
@@ -330,11 +332,11 @@ archivos declarativos (decorators de Nest/TypeORM/class-validator, wiring de DI,
 sin ramas ni cómputo que un unit test pueda ejercitar de forma significativa — están cubiertos igual,
 pero por los e2e (que sí bootean la app entera) o, en el caso de la migración, por haberla corrido
 contra la DB real. Con esa exclusión, `npm run test:cov` reporta cobertura solo de `services` y
-`controllers` (la lógica real): ~98.9% statements / ~82% branches / 100% functions / ~98.7% lines,
+`controllers` (la lógica real): ~99% statements / ~85% branches / 100% functions / ~99% lines,
 con un `coverageThreshold` en `package.json` un poco por debajo de eso para detectar regresiones sin
 ser un número arbitrario.
 
-**E2E tests** (`test/app.e2e-spec.ts`, 43 tests): levantan un Postgres real y descartable con
+**E2E tests** (`test/app.e2e-spec.ts`, 47 tests): levantan un Postgres real y descartable con
 [Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts`), le corren las
 migraciones reales del proyecto (no un esquema hardcodeado — issue #27) y cargan
 `test/setup/seed.sql` (seed propio y determinístico, no el de Cocos), y corren la app de punta a
@@ -359,6 +361,29 @@ etapa `runtime` liviana que solo instala dependencias de producción (`npm ci --
 copia el `dist/` ya compilado — la imagen final no incluye el código TypeScript ni el toolchain
 de build.
 
+**Colección Postman + Newman** (issue #5, `postman/`): el challenge pide explícitamente "una
+colección de Postman, Insomnia o REST Client" — ya estaba cubierto con REST Client
+(`rest-client/requests.http`), esto suma la variante Postman con verificación automática.
+`postman/cocos-challenge.postman_collection.json` espeja los mismos casos que
+`rest-client/requests.http` (mismos endpoints, mismos datos del seed real: `userId` 1-2,
+`instrumentId` 34=GGAL/47=PAMP), pero con un `pm.test()` por request (status code, forma de la
+respuesta, y los asserts de negocio que pide el issue — ej. orden `REJECTED` cuando no alcanza el
+disponible). Se corre headless con `npm run test:postman` (`newman run ...`), apuntando a
+`postman/environment.json` (`baseUrl`, default `http://localhost:3000`) — requiere el server
+corriendo de antemano (`npm run start:dev` o `docker compose up`), igual que la colección de REST
+Client. **Corre contra la Neon real** (no hay una base descartable para Postman/Newman como sí la
+hay para los e2e vía Testcontainers), así que cada corrida deja pedidos/movimientos reales
+persistidos — mismo trade-off que ya tenía `rest-client/requests.http`, no algo nuevo que introduce
+esta colección. Por eso los asserts de casos que dependen del balance actual del usuario (ej. "se
+rechaza por fondos insuficientes") usan montos deliberadamente extremos, para que el resultado sea
+determinístico sin importar cuánto se haya gastado en corridas anteriores; y la `Idempotency-Key` de
+la sección 7 se genera nueva en cada corrida (timestamp), para no depender de si ya existe una fila
+con esa key de una corrida previa. Deliberadamente **no** se integró a `ci.yml`: hacerlo bien
+requeriría levantar un Postgres efímero + el server real dentro del pipeline (infraestructura nueva,
+no solo la colección), y los e2e ya cubren toda la lógica de negocio —incluida la concurrencia—
+contra una base real aislada; Postman/Newman acá cumple el rol de colección entregable + smoke test
+manual, no de gate de CI.
+
 ## Estructura
 
 ```
@@ -382,6 +407,7 @@ test/
   app.e2e-spec.ts   # e2e de los 4 endpoints contra Postgres real (Testcontainers)
   setup/            # helper que levanta el container, corre las migraciones + seed.sql (seed de test)
 rest-client/requests.http
+postman/            # misma colección en formato Postman + test scripts (npm run test:postman)
 ```
 
 ## Contribuir

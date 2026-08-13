@@ -1,0 +1,13 @@
+{
+  "id": "c4d9e7a1-3b2f-4e6a-8d0c-cocos00000005",
+  "name": "Cocos Challenge - Local",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}
