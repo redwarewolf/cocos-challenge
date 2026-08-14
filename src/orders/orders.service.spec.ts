@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
+import { AdvisoryLock, LockNamespace } from '../database/advisory-lock';
 import {
   Instrument,
   InstrumentType,
@@ -42,6 +43,20 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
     findAndCount: jest.fn(),
     save: jest.fn(
       (order: Partial<Order>) => Promise.resolve(order) as Promise<Order>,
+    ),
+  };
+  // El repo transaccional es el mismo mock, así que `findOne` responde igual adentro y afuera
+  // del lock salvo que un test lo encadene con mockResolvedValueOnce.
+  const transactionalManager = {
+    getRepository: jest.fn().mockReturnValue(orderRepository),
+  };
+  const advisoryLock = {
+    withLock: jest.fn(
+      (
+        _namespace: LockNamespace,
+        _userId: number,
+        fn: (manager: typeof transactionalManager) => Promise<Order>,
+      ) => fn(transactionalManager),
     ),
   };
   const valuationService = {
@@ -87,6 +102,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
           provide: getRepositoryToken(Instrument),
           useValue: instrumentRepository,
         },
+        { provide: AdvisoryLock, useValue: advisoryLock },
         { provide: ValuationService, useValue: valuationService },
         { provide: OrderPricingService, useValue: orderPricing },
         { provide: IdempotentOrderWriter, useValue: idempotentOrderWriter },
@@ -365,6 +381,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
     it('cancela una orden en estado NEW', async () => {
       orderRepository.findOne.mockResolvedValue({
         id: 5,
+        userId: 1,
         status: OrderStatus.NEW,
       });
 
@@ -376,6 +393,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
     it('rechaza (400) cancelar una orden que no está NEW', async () => {
       orderRepository.findOne.mockResolvedValue({
         id: 5,
+        userId: 1,
         status: OrderStatus.FILLED,
       });
 
@@ -386,6 +404,47 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
       orderRepository.findOne.mockResolvedValue(null);
 
       await expect(service.cancel(999)).rejects.toThrow(NotFoundException);
+      // Sin orden no hay userId con el cual lockear, así que ni se abre la transacción.
+      expect(advisoryLock.withLock).not.toHaveBeenCalled();
+    });
+
+    it('cancela bajo el lock del dueño de la orden', async () => {
+      orderRepository.findOne.mockResolvedValue({
+        id: 5,
+        userId: 7,
+        status: OrderStatus.NEW,
+      });
+
+      await service.cancel(5);
+
+      expect(advisoryLock.withLock).toHaveBeenCalledWith(
+        LockNamespace.USER,
+        7,
+        expect.any(Function),
+      );
+    });
+
+    it('lanza 404 si la orden ya no está al releerla bajo el lock', async () => {
+      orderRepository.findOne
+        .mockResolvedValueOnce({ id: 5, userId: 1, status: OrderStatus.NEW })
+        .mockResolvedValueOnce(null);
+
+      await expect(service.cancel(5)).rejects.toThrow(NotFoundException);
+    });
+
+    // Es lo que aporta releer adentro: entre la lectura de afuera y el lock, la orden pudo
+    // haberse ejecutado, y cancelarla igual la sacaría de FILLED.
+    it('rechaza (400) si la orden dejó de estar NEW entre la lectura de afuera y el lock', async () => {
+      orderRepository.findOne
+        .mockResolvedValueOnce({ id: 5, userId: 1, status: OrderStatus.NEW })
+        .mockResolvedValueOnce({
+          id: 5,
+          userId: 1,
+          status: OrderStatus.FILLED,
+        });
+
+      await expect(service.cancel(5)).rejects.toThrow(BadRequestException);
+      expect(orderRepository.save).not.toHaveBeenCalled();
     });
   });
 });
