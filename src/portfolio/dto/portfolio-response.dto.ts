@@ -16,7 +16,23 @@ export class PortfolioPositionResponseDto {
   })
   quantity: number;
 
-  @ApiProperty({ example: 9000, description: 'quantity × último close' })
+  @ApiProperty({
+    example: 885.8,
+    nullable: true,
+    type: Number,
+    description: 'Último precio conocido del instrumento (marketdata.close)',
+  })
+  lastPrice: number | null;
+
+  @ApiProperty({
+    example: 917.75,
+    nullable: true,
+    type: Number,
+    description: 'Cierre del día anterior (marketdata.previousClose)',
+  })
+  previousClose: number | null;
+
+  @ApiProperty({ example: 9000, description: 'quantity × lastPrice' })
   marketValue: number;
 
   @ApiProperty({

@@ -190,6 +190,12 @@ export class ValuationService {
         ticker: row.ticker,
         name: row.name,
         quantity: quantity.toNumber(),
+        // Los dos precios que alimentan las métricas de arriba viajan en la respuesta:
+        // `dailyReturnPct` es el único número que el cliente no podría reconstruir
+        // (`lastPrice` se deduciría de marketValue/quantity, pero `previousClose` no sale
+        // de ningún lado), y una fila de posición necesita el precio unitario igual.
+        lastPrice: row.lastClose === null ? null : lastClose.toNumber(),
+        previousClose: previousClose === null ? null : previousClose.toNumber(),
         marketValue: marketValue.toDecimalPlaces(2).toNumber(),
         totalCost: totalCost.toDecimalPlaces(2).toNumber(),
         performancePct: performancePct.toDecimalPlaces(2).toNumber(),

@@ -175,6 +175,10 @@ describe('ValuationService', () => {
       // (925.85 - 900) / 900 * 100 = 2.8722...
       expect(position.dailyReturnPct).toBe(2.87);
       expect(position.performancePct).toBe(-0.18);
+      // Los dos precios viajan en la respuesta para que el retorno sea auditable:
+      // previousClose no se puede reconstruir a partir del resto del payload.
+      expect(position.lastPrice).toBe(925.85);
+      expect(position.previousClose).toBe(900);
     });
 
     it('dailyReturnPct es negativo cuando el cierre bajó respecto del anterior', async () => {
@@ -270,6 +274,7 @@ describe('ValuationService', () => {
       expect(position.performancePct).toBe(-100);
       // Sin cierre actual no hay retorno diario, aunque haya cierre anterior.
       expect(position.dailyReturnPct).toBeNull();
+      expect(position.lastPrice).toBeNull();
     });
 
     it('devuelve [] si el usuario no tiene posiciones', async () => {

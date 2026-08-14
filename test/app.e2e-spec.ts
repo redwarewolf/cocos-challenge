@@ -440,9 +440,16 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
       const position = res.body.positions.find(
         (p: { instrumentId: number }) => p.instrumentId === 2,
-      ) as { dailyReturnPct: number; performancePct: number };
+      ) as {
+        dailyReturnPct: number;
+        performancePct: number;
+        lastPrice: number;
+        previousClose: number;
+      };
 
       // El seed deja GGAL con close 900 y previousClose 800: (900 - 800) / 800 * 100.
+      expect(position.lastPrice).toBe(900);
+      expect(position.previousClose).toBe(800);
       expect(position.dailyReturnPct).toBe(12.5);
       // Se compró justo al último close, así que todavía no hay rendimiento contra el
       // costo — es lo que distingue las dos métricas.
