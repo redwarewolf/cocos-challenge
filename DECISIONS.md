@@ -216,9 +216,16 @@ Cancelar una orden `NEW` libera lo comprometido sin ningún paso extra: la reser
 aparte que haya que revertir, es el resultado de contar las órdenes que están en `NEW`. Al pasar a
 `CANCELLED` dejan de contarse.
 
-- `POST /v1/orders` expone solo `BUY`/`SELL`. El enunciado pide "una orden de compra o venta", así
-  que `CASH_IN`/`CASH_OUT` viven en un endpoint aparte en vez de sobrecargar el mismo DTO con campos
-  que no aplican a un movimiento de cash (no hay `price` ni `type` MARKET/LIMIT que tenga sentido ahí).
+- **`CASH_IN`/`CASH_OUT` entran por los dos endpoints.** `POST /v1/orders/cash` existe porque el
+  payload de un depósito no se parece al de una orden: no hay `price` ni `type` MARKET/LIMIT que
+  tenga sentido ahí, y sobrecargar un solo DTO con campos que no aplican deja un contrato que no
+  describe ninguna de las dos operaciones. Pero la consigna los modela como sides de la tabla
+  `orders`, así que `POST /v1/orders` también los acepta y delega en la misma lógica: quien copie
+  esa forma tiene que funcionar, no comerse un `400` por elegir el endpoint que el enunciado sugiere.
+  Los campos que solo aplican a `BUY`/`SELL` tienen un único valor posible en un movimiento de cash
+  —el instrumento `MONEDA`, `MARKET` y precio `1`—, así que se aceptan con ese valor y se rechazan
+  con cualquier otro. No se ignoran en silencio: un `CASH_IN` sobre una acción no es un campo de
+  más, es un pedido que no describe nada que pueda existir, y merece saberlo.
 - `size` y `amount` son mutuamente excluyentes. Con `amount`, `size = floor(amount / price)`, y se
   rechaza con `400` si da 0: no se admiten fracciones de acciones.
 - `MARKET` usa el último `close`; `LIMIT` requiere `price` en el body.

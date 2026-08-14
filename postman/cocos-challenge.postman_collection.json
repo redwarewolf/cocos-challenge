@@ -845,6 +845,103 @@
           ]
         },
         {
+          "name": "POST /orders — CASH_IN con la forma de la tabla orders",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"side\": \"CASH_IN\",\n  \"type\": \"MARKET\",\n  \"size\": 1000,\n  \"price\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// La consigna modela CASH_IN/CASH_OUT como sides de la tabla orders, asi que",
+                  "// POST /orders los acepta y delega en la misma logica que POST /orders/cash.",
+                  "pm.test('201, FILLED', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.status).to.eql('FILLED');",
+                  "  pm.expect(body.side).to.eql('CASH_IN');",
+                  "  pm.expect(body.size).to.eql(1000);",
+                  "  pm.expect(body.price).to.eql('1.00');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /orders — CASH_IN sobre una accion -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"instrumentId\": 34,\n  \"side\": \"CASH_IN\",\n  \"size\": 1000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Los campos que solo aplican a BUY/SELL se aceptan con el unico valor que",
+                  "// pueden tener en un movimiento de cash, y se rechazan con cualquier otro.",
+                  "pm.test('400', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "POST /orders/cash — CASH_OUT sin disponible -> REJECTED",
           "request": {
             "method": "POST",

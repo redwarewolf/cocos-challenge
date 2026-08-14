@@ -48,8 +48,8 @@ Los tres primeros son los que pide el challenge; el resto son bonus.
 | --- | --- | --- |
 | `GET` | `/v1/portfolio/:userId` | Valor de cuenta, pesos disponibles y posiciones |
 | `GET` | `/v1/instruments/search?q=` | Busca instrumentos por ticker o nombre |
-| `POST` | `/v1/orders` | Envía una orden `BUY`/`SELL`, `MARKET`/`LIMIT` |
-| `POST` | `/v1/orders/cash` | Deposita o retira pesos (bonus) |
+| `POST` | `/v1/orders` | Envía una orden `BUY`/`SELL`, `MARKET`/`LIMIT`, o un movimiento `CASH_IN`/`CASH_OUT` |
+| `POST` | `/v1/orders/cash` | Deposita o retira pesos, con el payload ajustado (bonus) |
 | `GET` | `/v1/orders?userId=` | Historial de órdenes paginado (bonus) |
 | `PATCH` | `/v1/orders/:id/cancel` | Cancela una orden en estado `NEW` (bonus) |
 | `GET` | `/health` | Readiness: pinguea la conexión real a la DB |
@@ -142,10 +142,23 @@ Un request mal formado responde `400`/`404` y no persiste nada — incluidos los
 lo que la columna puede guardar (`size` fuera de `INT`, `price` fuera de `NUMERIC(10,2)`), que se
 rechazan antes de llegar a la base en vez de volver como un `500`.
 
+**También acepta `CASH_IN`/`CASH_OUT`**, como los modela la consigna, delegando en la misma lógica
+que `POST /v1/orders/cash`. El monto se toma de `amount` o de `size` indistintamente (con precio 1
+son el mismo número), y `instrumentId`, `type` y `price` son opcionales — pero si vienen tienen que
+valer lo único que pueden valer en un movimiento de cash: el instrumento `MONEDA`, `MARKET` y `1`.
+Cualquier otra combinación responde `400`, porque un `CASH_IN` sobre una acción o a un precio que no
+sea 1 no describe nada que pueda existir.
+
+```json
+{ "userId": 2, "side": "CASH_IN", "amount": 50000 }
+{ "userId": 2, "side": "CASH_IN", "type": "MARKET", "size": 50000, "price": 1 }
+```
+
 ### `POST /v1/orders/cash`
 
-Deposita (`CASH_IN`) o retira (`CASH_OUT`) pesos — útil para fondear usuarios de prueba sin tocar la
-base directamente (en el seed original solo el usuario 1 tiene cash).
+Forma canónica de un movimiento de cash, con el payload ajustado a lo que un depósito necesita —
+útil para fondear usuarios de prueba sin tocar la base directamente (en el seed original solo el
+usuario 1 tiene cash).
 
 ```json
 { "userId": 2, "side": "CASH_IN", "amount": 50000 }
