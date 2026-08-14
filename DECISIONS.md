@@ -17,9 +17,15 @@ leer el mismo "disponible" antes de que ninguna se haya guardado, **pasar las do
 terminar gastando más pesos o vendiendo más acciones de las que el usuario tiene.
 
 `IdempotentOrderWriter` envuelve el cálculo del disponible y el insert de la orden en una
-transacción con `pg_advisory_xact_lock(userId)` (vía `AdvisoryLock`), serializando toda creación de
-órdenes o movimientos de un mismo usuario — BUY/SELL de cualquier instrumento, CASH_IN/CASH_OUT —
-sin bloquear a usuarios distintos entre sí.
+transacción con `pg_advisory_xact_lock(LockNamespace.USER, userId)` (vía `AdvisoryLock`),
+serializando toda creación de órdenes o movimientos de un mismo usuario — BUY/SELL de cualquier
+instrumento, CASH_IN/CASH_OUT — sin bloquear a usuarios distintos entre sí. `PATCH
+/orders/:id/cancel` corre bajo el mismo lock: es la otra escritura que toca el disponible, aunque
+solo lo libere.
+
+La key va con namespace porque Postgres tiene un único espacio de advisory locks. Con el `userId`
+pelado, el usuario 5 y cualquier otra entidad que alguna vez se lockee con id 5 se serializarían
+entre sí sin tener nada que ver.
 
 **Por qué un advisory lock y no `SELECT ... FOR UPDATE`**: `FOR UPDATE` necesita una fila que
 lockear, y acá no hay ninguna. El recurso en disputa es un agregado calculado sobre muchas filas,
@@ -38,6 +44,16 @@ infinita), no contra la orden de otro usuario. No hay recurso compartido entre c
 Verificado con un e2e contra Postgres real (no un mock) que dispara pares de movimientos
 concurrentes —2 BUY, 2 SELL y 2 CASH_OUT— individualmente dentro del disponible pero juntos no: en
 los tres casos uno queda `FILLED` y el otro `REJECTED`, y el disponible nunca queda negativo.
+
+**La consistencia de lectura es un problema aparte.** El lock protege el invariante de la plata,
+pero no alcanza para que un `GET /portfolio` devuelva una foto coherente: sus tres lecturas —cash,
+reservado y posiciones— sueltas abren una transacción cada una, y en `READ COMMITTED` una orden que
+commitea entre medio la ve una y la otra no. Con $100k y sin posiciones, un MARKET BUY de $50k
+concurrente puede hacer que el cash se lea antes del commit y las posiciones después, y el total
+informe $150k. No es un sobregiro —nada se escribió mal— pero el patrimonio queda mal. Por eso
+`getPortfolio` corre las tres dentro de una única transacción `REPEATABLE READ`, que les da un
+snapshot común. No necesita reintentos: en Postgres ese nivel solo falla por conflictos de
+escritura, y acá no se escribe nada.
 
 ---
 
