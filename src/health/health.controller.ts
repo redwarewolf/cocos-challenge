@@ -7,6 +7,8 @@ import {
   TypeOrmHealthIndicator,
 } from '@nestjs/terminus';
 
+const DB_PING_TIMEOUT_MS = 3000;
+
 @ApiTags('health')
 @Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {
@@ -15,9 +17,17 @@ export class HealthController {
     private readonly db: TypeOrmHealthIndicator,
   ) {}
 
+  /**
+   * Readiness: pinguea la conexión real a la base. El timeout contempla la primera conexión
+   * —cold start del Postgres serverless más el handshake TLS—, que tarda bastante más que las
+   * siguientes; con el default de 1000 ms el endpoint reporta la base caída mientras el resto
+   * de la API responde normalmente.
+   */
   @Get()
   @HealthCheck()
   check(): Promise<HealthCheckResult> {
-    return this.health.check([() => this.db.pingCheck('database')]);
+    return this.health.check([
+      () => this.db.pingCheck('database', { timeout: DB_PING_TIMEOUT_MS }),
+    ]);
   }
 }
