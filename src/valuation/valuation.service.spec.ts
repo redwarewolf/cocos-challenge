@@ -16,7 +16,13 @@ describe('ValuationService', () => {
   // se guarda una referencia plana al jest.fn() (en vez de leer `manager.query` cada vez)
   // para no disparar @typescript-eslint/unbound-method al pasarlo "sin bindear" a expect().
   const queryFn = jest.fn();
-  const manager = { query: queryFn } as unknown as EntityManager;
+  // getPortfolio lee dentro de una transacción; el fake corre el callback con el mismo manager,
+  // así que las lecturas siguen cayendo en queryFn.
+  const transactionFn = jest.fn();
+  const manager = {
+    query: queryFn,
+    connection: { transaction: transactionFn },
+  } as unknown as EntityManager;
   const orderRepository = { manager };
   const instrumentRepository = { findOne: jest.fn() };
   const warn = jest.fn();
@@ -24,6 +30,10 @@ describe('ValuationService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    transactionFn.mockImplementation(
+      (_isolationLevel: string, run: (m: EntityManager) => unknown) =>
+        run(manager),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -593,6 +603,26 @@ describe('ValuationService', () => {
       expect(portfolio.positions).toEqual([]);
       expect(portfolio.totalAccountValue).toBe(0);
       expect(portfolio.hasUnvaluedPositions).toBe(false);
+    });
+
+    // Sueltas, las tres lecturas ven snapshots distintos y el total puede mezclar el cash de
+    // antes de una orden con las posiciones de después.
+    it('lee cash, reservado y posiciones en una sola transacción REPEATABLE READ', async () => {
+      queryFn
+        .mockResolvedValueOnce([{ available: '1000' }])
+        .mockResolvedValueOnce([{ reserved: '0' }])
+        .mockResolvedValueOnce([]);
+
+      await service.getPortfolio(1);
+
+      expect(transactionFn).toHaveBeenCalledTimes(1);
+      expect(transactionFn).toHaveBeenCalledWith(
+        'REPEATABLE READ',
+        expect.any(Function),
+      );
+      // Las tres corrieron adentro: si alguna hubiera usado el manager por defecto, seguiría
+      // siendo una transacción aparte aunque el test no lo notara.
+      expect(queryFn).toHaveBeenCalledTimes(3);
     });
   });
 });

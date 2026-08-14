@@ -166,7 +166,10 @@ export class ValuationService {
    * rendimientos: `performancePct` contra lo invertido y `dailyReturnPct` contra el cierre
    * anterior.
    */
-  async getPositions(userId: number): Promise<PortfolioPosition[]> {
+  async getPositions(
+    userId: number,
+    manager: EntityManager = this.orderRepository.manager,
+  ): Promise<PortfolioPosition[]> {
     const rows: {
       instrumentId: number;
       ticker: string;
@@ -177,7 +180,7 @@ export class ValuationService {
       lastClose: string | null;
       previousClose: string | null;
       reservedQuantity: string;
-    }[] = await this.orderRepository.manager.query(
+    }[] = await manager.query(
       `
       WITH position_orders AS (
         SELECT
@@ -305,11 +308,21 @@ export class ValuationService {
   }
 
   async getPortfolio(userId: number): Promise<Portfolio> {
-    const [availableCash, reservedCash, positions] = await Promise.all([
-      this.getAvailableCash(userId),
-      this.getReservedCash(userId),
-      this.getPositions(userId),
-    ]);
+    // Las tres lecturas tienen que ver el mismo estado. Sueltas, cada una abre su propia
+    // transacción en READ COMMITTED: si una orden commitea entre medio, una la ve y la otra no, y
+    // el total termina sumando el cash de antes con las posiciones de después. REPEATABLE READ les
+    // da un snapshot único. Corren secuenciales porque comparten la conexión de la transacción,
+    // así que lanzarlas en paralelo no ganaría nada.
+    const { availableCash, reservedCash, positions } =
+      await this.orderRepository.manager.connection.transaction(
+        'REPEATABLE READ',
+        async (manager) => {
+          const availableCash = await this.getAvailableCash(userId, manager);
+          const reservedCash = await this.getReservedCash(userId, manager);
+          const positions = await this.getPositions(userId, manager);
+          return { availableCash, reservedCash, positions };
+        },
+      );
 
     // Las posiciones sin cotización no se pueden valuar, así que no suman al total.
     const positionsValue = positions.reduce(

@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Paginated } from '../common/dto/paginated-response.dto';
 import { PAGE_SIZE } from '../config/config';
+import { AdvisoryLock, LockNamespace } from '../database/advisory-lock';
 import {
   Instrument,
   InstrumentType,
@@ -36,6 +37,7 @@ export class OrdersService {
     private readonly valuationService: ValuationService,
     private readonly orderPricing: OrderPricingService,
     private readonly idempotentOrderWriter: IdempotentOrderWriter,
+    private readonly advisoryLock: AdvisoryLock,
   ) {}
 
   async create(dto: CreateOrderDto, idempotencyKey?: string): Promise<Order> {
@@ -173,12 +175,29 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException(`Order ${orderId} not found`);
     }
-    if (order.status !== OrderStatus.NEW) {
-      throw new BadRequestException(
-        `Only orders with status NEW can be cancelled (current status: ${order.status})`,
-      );
-    }
-    order.status = OrderStatus.CANCELLED;
-    return this.orderRepository.save(order);
+
+    // El lock es por usuario, así que hay que saber de quién es la orden para poder tomarlo: eso
+    // es todo lo que aporta la lectura de afuera. El estado se relee adentro, ya serializado
+    // contra las demás escrituras del usuario, porque entre las dos lecturas puede cambiar.
+    return this.advisoryLock.withLock(
+      LockNamespace.USER,
+      order.userId,
+      async (manager) => {
+        const orderRepository = manager.getRepository(Order);
+        const locked = await orderRepository.findOne({
+          where: { id: orderId },
+        });
+        if (!locked) {
+          throw new NotFoundException(`Order ${orderId} not found`);
+        }
+        if (locked.status !== OrderStatus.NEW) {
+          throw new BadRequestException(
+            `Only orders with status NEW can be cancelled (current status: ${locked.status})`,
+          );
+        }
+        locked.status = OrderStatus.CANCELLED;
+        return orderRepository.save(locked);
+      },
+    );
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
-import { AdvisoryLock } from '../database/advisory-lock';
+import { AdvisoryLock, LockNamespace } from '../database/advisory-lock';
 import {
   Order,
   OrderSide,
@@ -54,26 +54,30 @@ export class IdempotentOrderWriter {
       }
     }
 
-    return this.advisoryLock.withLock(userId, async (manager) => {
-      const orderRepo = manager.getRepository(Order);
+    return this.advisoryLock.withLock(
+      LockNamespace.USER,
+      userId,
+      async (manager) => {
+        const orderRepo = manager.getRepository(Order);
 
-      if (idempotencyKey) {
-        const existing = await this.findByKey(
-          orderRepo,
-          userId,
-          idempotencyKey,
-        );
-        if (existing) {
-          return existing;
+        if (idempotencyKey) {
+          const existing = await this.findByKey(
+            orderRepo,
+            userId,
+            idempotencyKey,
+          );
+          if (existing) {
+            return existing;
+          }
         }
-      }
 
-      const data = await computeData(manager);
-      return this.saveOrder(manager, {
-        ...data,
-        idempotencyKey: idempotencyKey ?? null,
-      });
-    });
+        const data = await computeData(manager);
+        return this.saveOrder(manager, {
+          ...data,
+          idempotencyKey: idempotencyKey ?? null,
+        });
+      },
+    );
   }
 
   private findByKey(
