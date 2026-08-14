@@ -49,7 +49,7 @@ construyen un esquema funcional desde cero, no solo que funcionan encima de lo q
 
 **Contra un Postgres real y descartable** (Testcontainers), no contra la base compartida ni contra un
 mock: permite ejercitar features Postgres-específicas de las que depende la lógica —CTEs,
-`DISTINCT ON`, `pg_advisory_xact_lock`, `ON CONFLICT DO NOTHING`— que un SQLite en memoria no
+`LATERAL`, `pg_advisory_xact_lock`, `ON CONFLICT DO NOTHING`— que un SQLite en memoria no
 reproduce, y garantiza que ninguna corrida pueda tocar datos reales.
 
 **Cada bloque e2e con estado crea su propio usuario** y arma sus propias órdenes, en vez de heredar
@@ -163,7 +163,7 @@ no tiene retorno diario, así que el porcentaje aplicaría sobre una parte del t
 total. Un número que hay que aclarar para que no confunda es peor que no tenerlo.
 
 `previousClose` no se deriva buscando el cierre del día anterior: la columna ya lo trae en la misma
-fila de `marketdata`, así que el CTE que selecciona el último precio resuelve las dos métricas sin
+fila de `marketdata`, así que el join que selecciona el último precio resuelve las dos métricas sin
 joins extra. Los dos precios viajan en la respuesta porque `dailyReturnPct` no sería auditable sin
 ellos — `lastPrice` se podría deducir de `marketValue / quantity` (con pérdida por el redondeo), pero
 `previousClose` no sale de ningún otro campo.
@@ -249,6 +249,11 @@ No se modificó ni se quitó ninguna tabla o columna existente: todos los cambio
 - **`ScopeIdempotencyKeyToUser`** reemplaza la constraint global por la compuesta `(userid,
   idempotencykey)`. No se corrigió editando la migración anterior porque esa ya se había aplicado:
   reescribir una migración corrida deja el historial de esquema mintiendo sobre lo que pasó.
+- **`UniqueMarketdataPerDay`** agrega `UNIQUE (instrumentid, date)` sobre `marketdata`, que es su
+  clave natural: la tabla guarda el OHLC diario de cada instrumento. Con dos filas del mismo día
+  queda indefinido cuál es "el último precio", y una orden podría ejecutarse contra una mientras el
+  portfolio se valúa contra la otra. El índice único reemplaza a `idx_marketdata_instrumentid_date`,
+  que cubría las mismas columnas.
 
 `synchronize: false` explícito, para que el ORM nunca intente alterar el esquema por su cuenta.
 
