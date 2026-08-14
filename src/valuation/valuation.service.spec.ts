@@ -92,6 +92,61 @@ describe('ValuationService', () => {
     });
   });
 
+  describe('getReservedCash / getBuyingPower', () => {
+    it('reserva el notional de las BUY en NEW', async () => {
+      queryFn.mockResolvedValue([{ reserved: '2500.00' }]);
+
+      expect(await service.getReservedCash(1, manager)).toBe(2500);
+      expect(queryFn).toHaveBeenCalledWith(
+        expect.stringContaining("status = 'NEW' AND side = 'BUY'"),
+        [1],
+      );
+    });
+
+    it('devuelve 0 si el usuario no tiene órdenes pendientes', async () => {
+      queryFn.mockResolvedValue([{ reserved: null }]);
+
+      expect(await service.getReservedCash(1, manager)).toBe(0);
+    });
+
+    it('el poder de compra descuenta lo comprometido del disponible', async () => {
+      queryFn
+        .mockResolvedValueOnce([{ available: '100000.00' }])
+        .mockResolvedValueOnce([{ reserved: '30000.00' }]);
+
+      expect(await service.getBuyingPower(1, manager)).toBe(70000);
+    });
+
+    it('el poder de compra no arrastra ruido de floats', async () => {
+      queryFn
+        .mockResolvedValueOnce([{ available: '0.3' }])
+        .mockResolvedValueOnce([{ reserved: '0.1' }]);
+
+      // 0.3 - 0.1 en floats nativos da 0.19999999999999998.
+      expect(await service.getBuyingPower(1, manager)).toBe(0.2);
+    });
+  });
+
+  describe('getReservedQuantity / getSellableQuantity', () => {
+    it('reserva el size de las SELL en NEW', async () => {
+      queryFn.mockResolvedValue([{ reserved: '15' }]);
+
+      expect(await service.getReservedQuantity(1, 34, manager)).toBe(15);
+      expect(queryFn).toHaveBeenCalledWith(
+        expect.stringContaining("status = 'NEW' AND side = 'SELL'"),
+        [1, 34],
+      );
+    });
+
+    it('la tenencia vendible descuenta lo comprometido', async () => {
+      queryFn
+        .mockResolvedValueOnce([{ quantity: '40' }])
+        .mockResolvedValueOnce([{ reserved: '15' }]);
+
+      expect(await service.getSellableQuantity(1, 34, manager)).toBe(25);
+    });
+  });
+
   describe('getAvailableQuantity', () => {
     it('devuelve la tenencia neta (BUY - SELL) para un instrumento puntual', async () => {
       queryFn.mockResolvedValue([{ quantity: '40' }]);
@@ -418,6 +473,7 @@ describe('ValuationService', () => {
     it('combina cash disponible + valor de las posiciones en totalAccountValue', async () => {
       queryFn
         .mockResolvedValueOnce([{ available: '748571.00' }]) // getAvailableCash
+        .mockResolvedValueOnce([{ reserved: '0' }]) // getReservedCash
         .mockResolvedValueOnce([
           {
             instrumentId: 47,
@@ -443,6 +499,7 @@ describe('ValuationService', () => {
     it('excluye del total las posiciones sin cotización y lo señala', async () => {
       queryFn
         .mockResolvedValueOnce([{ available: '100000.00' }])
+        .mockResolvedValueOnce([{ reserved: '0' }])
         .mockResolvedValueOnce([
           {
             instrumentId: 47,
@@ -478,6 +535,7 @@ describe('ValuationService', () => {
     it('totalAccountValue = availableCash cuando no hay posiciones', async () => {
       queryFn
         .mockResolvedValueOnce([{ available: '0' }])
+        .mockResolvedValueOnce([{ reserved: '0' }])
         .mockResolvedValueOnce([]);
 
       const portfolio = await service.getPortfolio(2);

@@ -17,6 +17,14 @@ export class PortfolioPositionResponseDto {
   quantity: number;
 
   @ApiProperty({
+    example: 0,
+    description:
+      'Acciones comprometidas en órdenes SELL en estado NEW. No se pueden volver a vender ' +
+      'hasta que esas órdenes se ejecuten o se cancelen.',
+  })
+  reservedQuantity: number;
+
+  @ApiProperty({
     example: 885.8,
     nullable: true,
     type: Number,
@@ -75,8 +83,24 @@ export class PortfolioResponseDto {
   @ApiProperty({ example: 1 })
   userId: number;
 
-  @ApiProperty({ example: 90000 })
+  @ApiProperty({
+    example: 90000,
+    description: 'Pesos liquidados: solo movimientos FILLED',
+  })
   availableCash: number;
+
+  @ApiProperty({
+    example: 10000,
+    description: 'Pesos comprometidos en órdenes BUY en estado NEW',
+  })
+  reservedCash: number;
+
+  @ApiProperty({
+    example: 80000,
+    description:
+      'availableCash − reservedCash. Es contra este número que se valida una orden nueva.',
+  })
+  buyingPower: number;
 
   @ApiProperty({ type: [PortfolioPositionResponseDto] })
   positions: PortfolioPositionResponseDto[];

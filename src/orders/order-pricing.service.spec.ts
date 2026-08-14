@@ -20,7 +20,9 @@ describe('OrderPricingService', () => {
   const valuationService = {
     getLastClose: jest.fn(),
     getAvailableCash: jest.fn(),
+    getBuyingPower: jest.fn(),
     getAvailableQuantity: jest.fn(),
+    getSellableQuantity: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -115,7 +117,7 @@ describe('OrderPricingService', () => {
 
   describe('resolveStatus', () => {
     it('BUY: FILLED (MARKET) si hay fondos suficientes', async () => {
-      valuationService.getAvailableCash.mockResolvedValue(100_000);
+      valuationService.getBuyingPower.mockResolvedValue(100_000);
 
       const status = await service.resolveStatus(
         { side: OrderSide.BUY, type: OrderType.MARKET, userId: 1 } as never,
@@ -128,7 +130,7 @@ describe('OrderPricingService', () => {
     });
 
     it('BUY: NEW (LIMIT) si hay fondos suficientes', async () => {
-      valuationService.getAvailableCash.mockResolvedValue(100_000);
+      valuationService.getBuyingPower.mockResolvedValue(100_000);
 
       const status = await service.resolveStatus(
         { side: OrderSide.BUY, type: OrderType.LIMIT, userId: 1 } as never,
@@ -141,7 +143,7 @@ describe('OrderPricingService', () => {
     });
 
     it('BUY: REJECTED si no hay fondos suficientes', async () => {
-      valuationService.getAvailableCash.mockResolvedValue(1000);
+      valuationService.getBuyingPower.mockResolvedValue(1000);
 
       const status = await service.resolveStatus(
         { side: OrderSide.BUY, type: OrderType.MARKET, userId: 1 } as never,
@@ -154,7 +156,7 @@ describe('OrderPricingService', () => {
     });
 
     it('SELL: REJECTED si no hay tenencia suficiente', async () => {
-      valuationService.getAvailableQuantity.mockResolvedValue(5);
+      valuationService.getSellableQuantity.mockResolvedValue(5);
 
       const status = await service.resolveStatus(
         {
@@ -169,11 +171,11 @@ describe('OrderPricingService', () => {
       );
 
       expect(status).toBe(OrderStatus.REJECTED);
-      expect(valuationService.getAvailableCash).not.toHaveBeenCalled();
+      expect(valuationService.getBuyingPower).not.toHaveBeenCalled();
     });
 
     it('SELL: FILLED si hay tenencia suficiente', async () => {
-      valuationService.getAvailableQuantity.mockResolvedValue(50);
+      valuationService.getSellableQuantity.mockResolvedValue(50);
 
       const status = await service.resolveStatus(
         {

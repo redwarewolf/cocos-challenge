@@ -46,6 +46,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
   };
   const valuationService = {
     getAvailableCash: jest.fn(),
+    getBuyingPower: jest.fn(),
     getCashInstrument: jest.fn(),
   };
   const orderPricing = {
@@ -233,7 +234,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
     });
 
     it('un CASH_IN siempre se llena, sin importar el disponible actual', async () => {
-      valuationService.getAvailableCash.mockResolvedValue(0);
+      valuationService.getBuyingPower.mockResolvedValue(0);
 
       const order = await service.createCashMovement({
         userId: 1,
@@ -248,7 +249,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
     });
 
     it('un CASH_OUT se llena si hay disponible suficiente', async () => {
-      valuationService.getAvailableCash.mockResolvedValue(100000);
+      valuationService.getBuyingPower.mockResolvedValue(100000);
 
       const order = await service.createCashMovement({
         userId: 1,
@@ -260,7 +261,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
     });
 
     it('un CASH_OUT queda REJECTED (pero se persiste) si no hay disponible suficiente', async () => {
-      valuationService.getAvailableCash.mockResolvedValue(1000);
+      valuationService.getBuyingPower.mockResolvedValue(1000);
 
       const order = await service.createCashMovement({
         userId: 1,
@@ -272,7 +273,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
     });
 
     it('delega en idempotentOrderWriter.write con el userId y la Idempotency-Key recibidos', async () => {
-      valuationService.getAvailableCash.mockResolvedValue(100000);
+      valuationService.getBuyingPower.mockResolvedValue(100000);
 
       await service.createCashMovement(
         { userId: 9, side: OrderSide.CASH_IN, amount: 1000 },

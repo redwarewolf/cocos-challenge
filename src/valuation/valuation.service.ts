@@ -68,6 +68,39 @@ export class ValuationService {
   }
 
   /**
+   * Pesos comprometidos en órdenes de compra que todavía no se ejecutaron: notional de las
+   * BUY en estado NEW.
+   */
+  async getReservedCash(
+    userId: number,
+    manager: EntityManager = this.orderRepository.manager,
+  ): Promise<number> {
+    const rows: { reserved: string | null }[] = await manager.query(
+      `
+      SELECT COALESCE(SUM(size * price), 0) AS reserved
+      FROM orders
+      WHERE userid = $1 AND status = 'NEW' AND side = 'BUY'
+      `,
+      [userId],
+    );
+    return Number(rows[0]?.reserved ?? 0);
+  }
+
+  /**
+   * Pesos que el usuario puede efectivamente comprometer ahora: el disponible menos lo ya
+   * comprometido. Las dos lecturas van secuenciales y no con `Promise.all` porque comparten el
+   * `manager`, y una transacción de TypeORM usa una sola conexión.
+   */
+  async getBuyingPower(
+    userId: number,
+    manager: EntityManager = this.orderRepository.manager,
+  ): Promise<number> {
+    const available = await this.getAvailableCash(userId, manager);
+    const reserved = await this.getReservedCash(userId, manager);
+    return new Decimal(available).minus(reserved).toNumber();
+  }
+
+  /**
    * Tenencia neta (FILLED BUY - FILLED SELL) de un instrumento para un usuario.
    * Usada tanto para armar el listado de posiciones como para validar ventas
    * (mismo motivo del parámetro `manager` que en getAvailableCash).
@@ -88,6 +121,42 @@ export class ValuationService {
       [userId, instrumentId],
     );
     return Number(rows[0]?.quantity ?? 0);
+  }
+
+  /** Acciones comprometidas en ventas que todavía no se ejecutaron: size de las SELL en NEW. */
+  async getReservedQuantity(
+    userId: number,
+    instrumentId: number,
+    manager: EntityManager = this.orderRepository.manager,
+  ): Promise<number> {
+    const rows: { reserved: string | null }[] = await manager.query(
+      `
+      SELECT COALESCE(SUM(size), 0) AS reserved
+      FROM orders
+      WHERE userid = $1 AND instrumentid = $2 AND status = 'NEW' AND side = 'SELL'
+      `,
+      [userId, instrumentId],
+    );
+    return Number(rows[0]?.reserved ?? 0);
+  }
+
+  /** Acciones que el usuario puede vender ahora: la tenencia menos lo ya comprometido. */
+  async getSellableQuantity(
+    userId: number,
+    instrumentId: number,
+    manager: EntityManager = this.orderRepository.manager,
+  ): Promise<number> {
+    const available = await this.getAvailableQuantity(
+      userId,
+      instrumentId,
+      manager,
+    );
+    const reserved = await this.getReservedQuantity(
+      userId,
+      instrumentId,
+      manager,
+    );
+    return available - reserved;
   }
 
   async getLastClose(
@@ -120,6 +189,7 @@ export class ValuationService {
       buySize: string;
       lastClose: string | null;
       previousClose: string | null;
+      reservedQuantity: string;
     }[] = await this.orderRepository.manager.query(
       `
       WITH position_orders AS (
@@ -143,7 +213,8 @@ export class ValuationService {
         po.buy_amount AS "buyAmount",
         po.buy_size AS "buySize",
         lp.close AS "lastClose",
-        lp.previousclose AS "previousClose"
+        lp.previousclose AS "previousClose",
+        r.reserved AS "reservedQuantity"
       FROM position_orders po
       INNER JOIN instruments i ON i.id = po.instrumentid
       -- Correlacionado por instrumento: un seek por posición contra
@@ -156,6 +227,12 @@ export class ValuationService {
         ORDER BY date DESC
         LIMIT 1
       ) lp ON true
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(size), 0) AS reserved
+        FROM orders
+        WHERE userid = $1 AND instrumentid = po.instrumentid
+          AND status = 'NEW' AND side = 'SELL'
+      ) r ON true
       WHERE po.quantity > 0
       ORDER BY i.ticker
       `,
@@ -228,6 +305,7 @@ export class ValuationService {
         ticker: row.ticker,
         name: row.name,
         quantity: quantity.toNumber(),
+        reservedQuantity: Number(row.reservedQuantity),
         // Los dos precios que alimentan las métricas de arriba viajan en la respuesta:
         // `dailyReturnPct` es el único número que el cliente no podría reconstruir
         // (`lastPrice` se deduciría de marketValue/quantity, pero `previousClose` no sale
@@ -246,8 +324,9 @@ export class ValuationService {
   }
 
   async getPortfolio(userId: number): Promise<Portfolio> {
-    const [availableCash, positions] = await Promise.all([
+    const [availableCash, reservedCash, positions] = await Promise.all([
       this.getAvailableCash(userId),
+      this.getReservedCash(userId),
       this.getPositions(userId),
     ]);
 
@@ -261,6 +340,8 @@ export class ValuationService {
     return {
       userId,
       availableCash,
+      reservedCash,
+      buyingPower: new Decimal(availableCash).minus(reservedCash).toNumber(),
       positions,
       totalAccountValue: new Decimal(availableCash)
         .plus(positionsValue)

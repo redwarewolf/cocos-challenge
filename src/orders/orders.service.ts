@@ -120,7 +120,7 @@ export class OrdersService {
         const status =
           dto.side === OrderSide.CASH_OUT &&
           dto.amount >
-            (await this.valuationService.getAvailableCash(dto.userId, manager))
+            (await this.valuationService.getBuyingPower(dto.userId, manager))
             ? OrderStatus.REJECTED
             : OrderStatus.FILLED;
 

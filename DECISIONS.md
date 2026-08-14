@@ -172,14 +172,29 @@ ellos — `lastPrice` se podría deducir de `marketValue / quantity` (con pérdi
 
 ## 5. Envío de órdenes
 
+### Una orden `NEW` compromete el disponible
+
+Una orden pendiente todavía no movió plata ni acciones, pero ya las tiene apalabradas. Por eso el
+disponible se informa en tres números y no en uno: `availableCash` es lo liquidado (movimientos
+`FILLED`), `reservedCash` es el notional de las `BUY` en `NEW`, y `buyingPower` es la diferencia —
+lo que se puede comprometer en una orden nueva. Lo mismo por posición, con `quantity` y
+`reservedQuantity`.
+
+Una orden se valida contra el poder de compra y contra la tenencia vendible, no contra los totales.
+Si no fuera así, N órdenes `LIMIT` que individualmente entran podrían en conjunto gastar varias
+veces el mismo saldo, o vender varias veces las mismas acciones.
+
+Cancelar una orden `NEW` libera lo comprometido sin ningún paso extra: la reserva no es un registro
+aparte que haya que revertir, es el resultado de contar las órdenes que están en `NEW`. Al pasar a
+`CANCELLED` dejan de contarse.
+
 - `POST /v1/orders` expone solo `BUY`/`SELL`. El enunciado pide "una orden de compra o venta", así
   que `CASH_IN`/`CASH_OUT` viven en un endpoint aparte en vez de sobrecargar el mismo DTO con campos
   que no aplican a un movimiento de cash (no hay `price` ni `type` MARKET/LIMIT que tenga sentido ahí).
 - `size` y `amount` son mutuamente excluyentes. Con `amount`, `size = floor(amount / price)`, y se
   rechaza con `400` si da 0: no se admiten fracciones de acciones.
 - `MARKET` usa el último `close`; `LIMIT` requiere `price` en el body.
-- La validación de fondos (BUY) o tenencia (SELL) usa el mismo cálculo que el portfolio, sobre
-  órdenes `FILLED`.
+- La validación de fondos (BUY) o tenencia (SELL) usa el mismo cálculo que el portfolio.
 - Sin disponible suficiente, la orden **se persiste igual** con `status = REJECTED` y responde `201`.
   Un request inválido (usuario o instrumento inexistente, `LIMIT` sin `price`, `size` y `amount`
   juntos, operar sobre `MONEDA`) responde `400`/`404` y no persiste nada. La distinción es entre "el
@@ -356,12 +371,6 @@ de colección entregable y smoke test manual, no de gate.
 ## 10. Limitaciones conocidas
 
 Cosas que están así a propósito, con lo que haría falta para resolverlas.
-
-**Las órdenes `LIMIT` en `NEW` no reservan fondos.** La validación mira solo órdenes `FILLED`, así
-que N órdenes `LIMIT` que individualmente pasan pueden en conjunto exceder el disponible. El
-enunciado aclara que no hay que simular el mercado, y sin ejecución de las `LIMIT` el problema es
-acotado. Se resolvería descontando el notional de las `NEW` del disponible, o con una tabla de
-reservas si se quisiera liberar el monto al cancelar o vencer.
 
 **El balance se deriva de `orders` en cada request.** Es correcto y auditable, pero es un `SUM` sobre
 todas las órdenes del usuario. Con millones de filas haría falta materializar el balance en una

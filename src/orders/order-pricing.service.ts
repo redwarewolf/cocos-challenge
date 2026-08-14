@@ -73,15 +73,18 @@ export class OrderPricingService {
     price: number,
     manager: EntityManager,
   ): Promise<OrderStatus> {
+    // Contra el poder de compra y la tenencia vendible, no contra el disponible liquidado:
+    // las órdenes NEW ya comprometieron esos pesos y esas acciones aunque todavía no se
+    // hayan ejecutado.
     const hasEnoughFunds =
       dto.side === OrderSide.BUY
         ? new Decimal(size)
             .times(price)
             .lessThanOrEqualTo(
-              await this.valuationService.getAvailableCash(dto.userId, manager),
+              await this.valuationService.getBuyingPower(dto.userId, manager),
             )
         : size <=
-          (await this.valuationService.getAvailableQuantity(
+          (await this.valuationService.getSellableQuantity(
             dto.userId,
             dto.instrumentId,
             manager,

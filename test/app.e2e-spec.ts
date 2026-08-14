@@ -217,6 +217,8 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(res.body).toEqual({
         userId: 1,
         availableCash: 100000,
+        reservedCash: 0,
+        buyingPower: 100000,
         positions: [],
         totalAccountValue: 100000,
         hasUnvaluedPositions: false,
@@ -230,6 +232,8 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(res.body).toEqual({
         userId: 2,
         availableCash: 0,
+        reservedCash: 0,
+        buyingPower: 0,
         positions: [],
         totalAccountValue: 0,
         hasUnvaluedPositions: false,
@@ -760,6 +764,141 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         .send({ userId: 999, side: 'CASH_IN', amount: 100 });
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('Las órdenes LIMIT en NEW reservan disponible', () => {
+    let userId: number;
+
+    beforeAll(async () => {
+      userId = await crearUsuario();
+      await fondear(userId, 10_000);
+    });
+
+    it('una BUY LIMIT baja el poder de compra sin tocar el cash liquidado', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId,
+        instrumentId: 2,
+        side: 'BUY',
+        type: 'LIMIT',
+        size: 8,
+        price: 1000,
+      });
+      expect(res.body.status).toBe('NEW');
+
+      const portfolio = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+      // El cash sigue liquidado: la orden todavía no se ejecutó.
+      expect(portfolio.body.availableCash).toBe(10000);
+      expect(portfolio.body.reservedCash).toBe(8000);
+      expect(portfolio.body.buyingPower).toBe(2000);
+    });
+
+    it('una segunda BUY que excede el poder de compra queda REJECTED', async () => {
+      // Contra availableCash (10.000) entraría; contra buyingPower (2.000) no.
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId,
+        instrumentId: 2,
+        side: 'BUY',
+        type: 'MARKET',
+        size: 5,
+      });
+
+      expect(res.body.status).toBe('REJECTED');
+    });
+
+    it('cancelar la LIMIT libera el poder de compra', async () => {
+      const historial = await request(app.getHttpServer())
+        .get('/v1/orders')
+        .query({ userId, status: 'NEW' });
+      const pendiente = historial.body.data[0] as { id: number };
+
+      await request(app.getHttpServer()).patch(
+        `/v1/orders/${pendiente.id}/cancel`,
+      );
+
+      const portfolio = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+      expect(portfolio.body.reservedCash).toBe(0);
+      expect(portfolio.body.buyingPower).toBe(10000);
+    });
+
+    it('con el disponible liberado, la misma compra ahora entra', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId,
+        instrumentId: 2,
+        side: 'BUY',
+        type: 'MARKET',
+        size: 5,
+      });
+
+      expect(res.body.status).toBe('FILLED');
+    });
+  });
+
+  describe('Las órdenes SELL en NEW reservan acciones', () => {
+    let userId: number;
+
+    beforeAll(async () => {
+      userId = await crearUsuario();
+      await fondear(userId, 100_000);
+      await request(app.getHttpServer()).post('/v1/orders').send({
+        userId,
+        instrumentId: 2,
+        side: 'BUY',
+        type: 'MARKET',
+        size: 10,
+      });
+    });
+
+    it('una SELL LIMIT reserva las acciones y se refleja en la posición', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId,
+        instrumentId: 2,
+        side: 'SELL',
+        type: 'LIMIT',
+        size: 8,
+        price: 1500,
+      });
+      expect(res.body.status).toBe('NEW');
+
+      const portfolio = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+      const position = portfolio.body.positions.find(
+        (p: { instrumentId: number }) => p.instrumentId === 2,
+      ) as { quantity: number; reservedQuantity: number };
+
+      // La tenencia no cambió: la venta todavía no se ejecutó.
+      expect(position.quantity).toBe(10);
+      expect(position.reservedQuantity).toBe(8);
+    });
+
+    it('una segunda SELL que excede lo vendible queda REJECTED', async () => {
+      // Contra la tenencia (10) entraría; contra lo vendible (10 − 8 = 2) no.
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId,
+        instrumentId: 2,
+        side: 'SELL',
+        type: 'MARKET',
+        size: 5,
+      });
+
+      expect(res.body.status).toBe('REJECTED');
+    });
+
+    it('vender dentro de lo no comprometido sí se ejecuta', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId,
+        instrumentId: 2,
+        side: 'SELL',
+        type: 'MARKET',
+        size: 2,
+      });
+
+      expect(res.body.status).toBe('FILLED');
     });
   });
 
