@@ -103,7 +103,14 @@ export class ValuationService {
     return close === undefined || close === null ? null : Number(close);
   }
 
-  /** Listado de posiciones (activos con tenencia positiva), valuadas al último cierre. */
+  /**
+   * Listado de posiciones (activos con tenencia positiva), valuadas al último cierre.
+   *
+   * Cada posición trae dos rendimientos, que responden preguntas distintas:
+   * `performancePct` es el rendimiento total contra lo invertido (sale de las órdenes
+   * FILLED) y `dailyReturnPct` es el retorno del día contra el cierre anterior (sale de
+   * marketdata). Ninguno de los dos reemplaza al otro.
+   */
   async getPositions(userId: number): Promise<PortfolioPosition[]> {
     const rows: {
       instrumentId: number;
@@ -112,6 +119,7 @@ export class ValuationService {
       quantity: string;
       netCost: string;
       lastClose: string | null;
+      previousClose: string | null;
     }[] = await this.orderRepository.manager.query(
       `
       WITH position_orders AS (
@@ -125,7 +133,7 @@ export class ValuationService {
         GROUP BY o.instrumentid
       ),
       latest_price AS (
-        SELECT DISTINCT ON (instrumentid) instrumentid, close
+        SELECT DISTINCT ON (instrumentid) instrumentid, close, previousclose
         FROM marketdata
         ORDER BY instrumentid, date DESC
       )
@@ -135,7 +143,8 @@ export class ValuationService {
         i.name,
         po.quantity,
         po.net_cost AS "netCost",
-        lp.close AS "lastClose"
+        lp.close AS "lastClose",
+        lp.previousclose AS "previousClose"
       FROM position_orders po
       INNER JOIN instruments i ON i.id = po.instrumentid
       LEFT JOIN latest_price lp ON lp.instrumentid = po.instrumentid
@@ -155,14 +164,42 @@ export class ValuationService {
         ? marketValue.minus(totalCost).dividedBy(totalCost).times(100)
         : new Decimal(0);
 
+      // `previousclose` ya trae el cierre del día anterior en la misma fila de marketdata,
+      // así que el retorno diario no necesita un self-join contra el día previo: alcanza
+      // con la fila que `latest_price` ya seleccionó. Da igual calcularlo por acción o
+      // sobre la posición entera (la cantidad se cancela), así que el porcentaje no
+      // depende de la tenencia.
+      const previousClose =
+        row.previousClose === null ? null : new Decimal(row.previousClose);
+      const dailyReturnPct =
+        row.lastClose !== null &&
+        previousClose !== null &&
+        previousClose.greaterThan(0)
+          ? lastClose
+              .minus(previousClose)
+              .dividedBy(previousClose)
+              .times(100)
+              .toDecimalPlaces(2)
+              .toNumber()
+          : // `null` y no 0: sin alguno de los dos precios el retorno es desconocido, y un
+            // 0 sería indistinguible de "el precio no se movió".
+            null;
+
       return {
         instrumentId: row.instrumentId,
         ticker: row.ticker,
         name: row.name,
         quantity: quantity.toNumber(),
+        // Los dos precios que alimentan las métricas de arriba viajan en la respuesta:
+        // `dailyReturnPct` es el único número que el cliente no podría reconstruir
+        // (`lastPrice` se deduciría de marketValue/quantity, pero `previousClose` no sale
+        // de ningún lado), y una fila de posición necesita el precio unitario igual.
+        lastPrice: row.lastClose === null ? null : lastClose.toNumber(),
+        previousClose: previousClose === null ? null : previousClose.toNumber(),
         marketValue: marketValue.toDecimalPlaces(2).toNumber(),
         totalCost: totalCost.toDecimalPlaces(2).toNumber(),
         performancePct: performancePct.toDecimalPlaces(2).toNumber(),
+        dailyReturnPct,
       };
     });
   }

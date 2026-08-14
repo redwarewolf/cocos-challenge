@@ -57,14 +57,34 @@ Valor total de cuenta, pesos disponibles y posiciones del usuario.
       "ticker": "PAMP",
       "name": "Pampa Holding S.A.",
       "quantity": 40,
+      "lastPrice": 925.85,
+      "previousClose": 900,
       "marketValue": 37034,
       "totalCost": 37100,
-      "performancePct": -0.18
+      "performancePct": -0.18,
+      "dailyReturnPct": 2.87
     }
   ],
   "totalAccountValue": 904784
 }
 ```
+
+Cada posición trae dos rendimientos, que responden preguntas distintas:
+
+| Campo | Fórmula | Responde |
+| --- | --- | --- |
+| `performancePct` | `(marketValue − totalCost) / totalCost × 100` | ¿cómo me fue desde que compré? |
+| `dailyReturnPct` | `(lastPrice − previousClose) / previousClose × 100` | ¿cómo me fue hoy? |
+
+Los dos precios que alimentan esas métricas viajan en la respuesta (`lastPrice` es
+`marketdata.close`; `previousClose`, la columna homónima). No es redundancia: `lastPrice`
+todavía se podría deducir de `marketValue / quantity`, pero `previousClose` no sale de
+ningún otro campo, así que sin él `dailyReturnPct` es un número que hay que creer. Además
+una fila de posición necesita el precio unitario para mostrarse, y obligar al cliente a
+dividir para obtenerlo es trabajo que la API ya tiene hecho.
+
+`dailyReturnPct` es `null` —no `0`— si al instrumento le falta el cierre actual o el
+anterior: un `0` sería indistinguible de "el precio no se movió".
 
 ### `GET /v1/instruments/search?q=<texto>&page=&limit=`
 
@@ -176,9 +196,35 @@ hardcodea su `id`.
   simple al costo invertido neto, no un FIFO/promedio ponderado estricto. Para el alcance del
   challenge (sin simular mercado, sin fraccionamiento de acciones) se consideró suficiente y es
   fácil de auditar a partir de las propias órdenes.
-- `marketValue = quantity × último close (marketdata)`.
+- `marketValue = quantity × lastPrice` (el `close` más reciente de `marketdata`).
 - `performancePct = (marketValue − totalCost) / totalCost × 100` (0 si `totalCost <= 0`).
+- `dailyReturnPct = (close − previousClose) / previousClose × 100`, o `null` si falta alguno de los
+  dos precios.
 - `totalAccountValue = availableCash + Σ marketValue`.
+
+**Rendimiento total vs. retorno diario**: el enunciado pide dos cosas distintas en dos lugares
+distintos, y la API devuelve las dos. El "rendimiento total (%)" del listado de activos se calcula
+contra lo invertido, y el propio enunciado lo confirma al decir que *"para calcular el valor de
+mercado, rendimiento y cantidad de acciones de cada posición usar las órdenes en estado `FILLED`"*:
+si el rendimiento saliera de `close`/`previousClose`, las órdenes no participarían del cálculo. El
+retorno diario es la métrica que el enunciado pide calcular con esas dos columnas, y va **por
+posición**: solo es rendimiento del usuario cuando hay tenencia — sobre un instrumento que no se
+posee es dato de mercado, no rendimiento, y por eso no se agregó a la búsqueda de instrumentos.
+
+No se expone un retorno diario a nivel cuenta: `totalAccountValue` incluye `availableCash`, que no
+tiene retorno diario, así que el porcentaje aplicaría sobre una parte del total y no sobre el total.
+Un número que hay que aclarar para que no confunda es peor que no tenerlo.
+
+`previousClose` no se deriva buscando el cierre del día anterior: la columna ya lo trae en la misma
+fila de `marketdata` (en la base real, la fila del día más reciente de cada instrumento tiene el
+cierre previo), así que el CTE que ya selecciona el último precio resuelve las dos métricas sin
+joins extra.
+
+Se asume que todo instrumento tiene marketdata: en la base provista son 126 filas, 2 fechas por
+instrumento, sin un solo `previousClose` nulo ni en cero. Los campos igual se tipan nullable y hay
+guards para ese caso, porque una posición sin precio es un estado representable en el esquema aunque
+hoy no ocurra — pero la respuesta no intenta ser inteligente al respecto: si no hay precio,
+`marketValue` es 0 y los precios y el retorno diario son `null`.
 
 Esta lógica vive en un único `ValuationService` (`src/valuation`), reutilizado tanto por
 `GET /v1/portfolio/:userId` como por la validación de fondos/tenencia al crear una orden, para no
