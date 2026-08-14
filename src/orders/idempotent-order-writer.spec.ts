@@ -90,7 +90,7 @@ describe('IdempotentOrderWriter', () => {
     );
 
     expect(orderRepository.findOne).toHaveBeenCalledWith({
-      where: { idempotencyKey: 'key-1' },
+      where: { userId: 1, idempotencyKey: 'key-1' },
     });
     expect(orderRepository.findOne).toHaveBeenCalledTimes(2);
     expect(advisoryLock.withLock).toHaveBeenCalled();
@@ -130,6 +130,30 @@ describe('IdempotentOrderWriter', () => {
     await expect(
       writer.write('key-1', 1, () => Promise.resolve(sampleData)),
     ).rejects.toThrow(/No se pudo crear ni encontrar la orden/);
+  });
+
+  it('la key se busca scopeada por usuario, no globalmente', async () => {
+    // La misma key mandada por otro usuario no debe resolver contra la orden ajena: si el
+    // findOne no filtrara por userId, el usuario 2 recibiría la orden del usuario 1, con
+    // instrumento, size y precio que no son suyos.
+    const created = { id: 200, userId: 2, idempotencyKey: 'key-1' } as Order;
+    orderRepository.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(created);
+
+    const order = await writer.write('key-1', 2, () =>
+      Promise.resolve({ ...sampleData, userId: 2 }),
+    );
+
+    expect(orderRepository.findOne).toHaveBeenNthCalledWith(1, {
+      where: { userId: 2, idempotencyKey: 'key-1' },
+    });
+    // La relectura posterior al ON CONFLICT DO NOTHING también va scopeada: si perdimos la
+    // carrera, la fila a devolver es la de este usuario.
+    expect(orderRepository.findOne).toHaveBeenNthCalledWith(2, {
+      where: { userId: 2, idempotencyKey: 'key-1' },
+    });
+    expect(order).toBe(created);
   });
 
   it('propaga errores de computeData/lock sin tratarlos como duplicado', async () => {

@@ -4,6 +4,7 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
 } from 'typeorm';
 import { Instrument } from './instrument.entity';
 import { User } from './user.entity';
@@ -28,6 +29,10 @@ export enum OrderStatus {
 }
 
 @Entity({ name: 'orders' })
+// Espeja la constraint real de la DB (ver migración ScopeIdempotencyKeyToUser). Con
+// `synchronize: false` esto no crea nada: es metadata, y desactualizarla haría que la
+// entity describa un esquema que no existe.
+@Unique('uq_orders_userid_idempotencykey', ['userId', 'idempotencyKey'])
 export class Order {
   @PrimaryGeneratedColumn()
   id: number;
@@ -68,13 +73,15 @@ export class Order {
    * Header `Idempotency-Key` opcional (issue #8): si un cliente reintenta un POST con
    * la misma key, se devuelve esta fila en vez de crear una orden duplicada. Columna
    * agregada vía migración aditiva, no forma parte del esquema original de Cocos.
+   *
+   * La unicidad es por usuario (ver `@Unique` en la clase), no global: la key identifica
+   * un intento de un usuario puntual, y dos cuentas distintas pueden elegir la misma.
    */
   @Column({
     name: 'idempotencykey',
     type: 'varchar',
     length: 255,
     nullable: true,
-    unique: true,
   })
   idempotencyKey: string | null;
 }

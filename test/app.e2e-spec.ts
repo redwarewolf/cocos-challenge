@@ -722,6 +722,35 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(matching).toHaveLength(1);
     });
 
+    it('la misma key desde dos usuarios distintos crea dos órdenes, cada una de su dueño', async () => {
+      // La key la elige el cliente, así que la colisión entre cuentas no es hipotética.
+      // Con la constraint UNIQUE global anterior, el segundo usuario recibía la orden del
+      // primero: userId, instrumento, size y precio ajenos.
+      const key = 'e2e-misma-key-dos-usuarios';
+
+      const first = await request(app.getHttpServer())
+        .post('/v1/orders/cash')
+        .set('Idempotency-Key', key)
+        .send({ userId: 1, side: 'CASH_IN', amount: 500 });
+
+      const second = await request(app.getHttpServer())
+        .post('/v1/orders/cash')
+        .set('Idempotency-Key', key)
+        .send({ userId: 2, side: 'CASH_IN', amount: 500 });
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(second.body.id).not.toBe(first.body.id);
+      expect(first.body.userId).toBe(1);
+      expect(second.body.userId).toBe(2);
+      // Y cada uno sigue siendo idempotente dentro de su propia cuenta.
+      const retry = await request(app.getHttpServer())
+        .post('/v1/orders/cash')
+        .set('Idempotency-Key', key)
+        .send({ userId: 2, side: 'CASH_IN', amount: 500 });
+      expect(retry.body.id).toBe(second.body.id);
+    });
+
     it('sin Idempotency-Key, cada request crea una orden nueva (aunque el body sea idéntico)', async () => {
       const a = await request(app.getHttpServer())
         .post('/v1/orders/cash')

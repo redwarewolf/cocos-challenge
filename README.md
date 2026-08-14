@@ -156,6 +156,15 @@ incluso si dos requests con la misma key llegan casi al mismo tiempo (ver detall
 "Decisiones de diseño" más abajo). Sin el header, cada request crea una orden nueva, como
 siempre.
 
+La key es única **por usuario**: la elige el cliente, así que dos cuentas distintas pueden mandar la
+misma sin pisarse.
+
+**Limitación conocida**: si llega la misma key con un body distinto, se devuelve la orden original
+en silencio. Lo canónico es guardar un hash del request junto con la key y responder `409 Conflict`
+ante un mismatch, para que el cliente se entere de que reusó una key. Quedó afuera a propósito
+—suma una columna y una decisión sobre qué campos entran en el hash— pero es el siguiente paso
+natural de esta feature.
+
 Ver `postman/` para una colección completa de ejemplos ejecutables, con test scripts (ver "Colección
 Postman + Newman" más abajo).
 
@@ -176,6 +185,11 @@ migraciones:
   `marketdata (instrumentid, date DESC)`.
 - `AddOrdersIdempotencyKey`: agrega la columna `orders.idempotencykey` (nullable, `UNIQUE`) que
   soporta el header `Idempotency-Key` (ver "Idempotencia" más abajo).
+- `ScopeIdempotencyKeyToUser`: reemplaza esa constraint global por una compuesta
+  `(userid, idempotencykey)`. La primera versión permitía que la key de un usuario resolviera
+  contra la orden de otro. No se corrigió editando `AddOrdersIdempotencyKey` porque esa migración ya
+  se había aplicado: reescribir una migración corrida deja el historial de esquema mintiendo sobre
+  lo que realmente pasó.
 
 Se corren con `npm run migration:run`. `TypeOrmModule` se configura con `synchronize: false`
 explícitamente para que el ORM nunca intente alterar el esquema por su cuenta. Los e2e corren estas
@@ -285,19 +299,30 @@ disponible pero juntos no: en los tres casos uno queda `FILLED` y el otro `REJEC
 disponible/tenencia queden nunca negativos.
 
 **Idempotencia** (`POST /v1/orders` / `POST /v1/orders/cash`, header `Idempotency-Key`): se agregó una
-columna `idempotencykey` en `orders`, nullable y `UNIQUE` (migración aditiva
-`AddOrdersIdempotencyKey`), en vez de una tabla aparte de claves de idempotencia — con un solo campo
+columna `idempotencykey` en `orders`, nullable y con una constraint `UNIQUE (userid, idempotencykey)`,
+en vez de una tabla aparte de claves de idempotencia — con un solo campo
 extra alcanza para el alcance de este challenge, y la propia constraint `UNIQUE` de Postgres resuelve
 la atomicidad sin necesitar lógica de estado propia (dos `NULL` nunca "chocan" entre sí, así que no
-afecta a los requests sin key). Si viene la key, `IdempotentOrderWriter` primero busca una orden ya
+afecta a los requests sin key).
+
+La unicidad es **por usuario y no global**: la key la elige el cliente (puede ser un UUID, pero
+también un `retry-1`), así que dos cuentas pueden mandar la misma. Con una constraint global, el
+segundo usuario recibía la orden del primero — con `userId`, instrumento, size y precio ajenos.
+Sin autenticación es un escenario de laboratorio, pero es una fuga entre cuentas igual, y el filtro
+por `userId` va tanto en la búsqueda previa como en la relectura posterior al insert.
+
+Si viene la key, `IdempotentOrderWriter` primero busca una orden de ese usuario ya
 guardada con ese valor — caso común, el cliente reintentó tras un timeout sin recibir la respuesta original —
 y si existe la devuelve directamente, sin volver a ejecutar la orden ni tomar el lock del usuario. El
 caso más raro (dos requests con la misma key llegando casi al mismo tiempo) se resuelve a nivel SQL,
 no con una excepción: el insert usa `ON CONFLICT DO NOTHING` (`.orIgnore()` de TypeORM) en vez de un
 `INSERT` liso, así que el que pierde la carrera simplemente no inserta nada en vez de fallar; como
-después del insert la fila con esa key ya existe en la DB —la haya creado uno u otro— un `findOne`
-posterior la resuelve sin necesitar inspeccionar códigos de error (`SQLSTATE`) del driver. Verificado
-con tests e2e (reintento secuencial, sin key, y dos requests concurrentes con la misma key) contra un
+después del insert la fila de ese usuario con esa key ya existe en la DB —la haya creado uno u
+otro— un `findOne` posterior la resuelve sin necesitar inspeccionar códigos de error (`SQLSTATE`)
+del driver. `.orIgnore()` genera un `ON CONFLICT DO NOTHING` sin target, así que funciona igual
+contra la constraint compuesta. Verificado
+con tests e2e (reintento secuencial, sin key, dos requests concurrentes con la misma key, y la misma
+key desde dos usuarios distintos) contra un
 Postgres real de Testcontainers, y a mano contra la Neon real.
 
 **Precisión numérica** (issue #7): `price`/`close` viajan como `string` desde `pg` (Postgres
