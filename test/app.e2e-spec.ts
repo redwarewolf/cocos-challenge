@@ -443,13 +443,46 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(res.status).toBe(400);
     });
 
-    it('400 si el side es CASH_IN/CASH_OUT (van por POST /orders/cash)', async () => {
+    it('400 si un movimiento de cash apunta a un instrumento que no es MONEDA', async () => {
       const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,
         instrumentId: 2,
         side: 'CASH_IN',
         type: 'MARKET',
         size: 1,
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si un movimiento de cash viene con type LIMIT', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId: 1,
+        side: 'CASH_IN',
+        type: 'LIMIT',
+        size: 1000,
+        price: 500,
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si un movimiento de cash viene con un precio que no es 1', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId: 1,
+        side: 'CASH_IN',
+        size: 1000,
+        price: 2,
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si el monto de un movimiento de cash tiene centavos', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId: 1,
+        side: 'CASH_IN',
+        amount: 1000.5,
       });
 
       expect(res.status).toBe(400);
@@ -692,6 +725,83 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       );
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  // La consigna modela CASH_IN/CASH_OUT como sides de la tabla orders, así que POST /orders los
+  // acepta con la forma de una orden y delega en la misma lógica que POST /orders/cash.
+  describe('POST /orders — movimientos de cash (usuario propio, arranca en $0)', () => {
+    let userId: number;
+
+    beforeAll(async () => {
+      userId = await crearUsuario();
+    });
+
+    it('CASH_IN con "amount" funda al usuario', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/v1/orders')
+        .send({ userId, side: 'CASH_IN', amount: 50000 });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({
+        status: 'FILLED',
+        side: 'CASH_IN',
+        size: 50000,
+        price: '1.00',
+      });
+
+      const portfolio = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+      expect(portfolio.body.availableCash).toBe(50000);
+    });
+
+    // El payload que manda quien copia la forma de la tabla orders.
+    it('CASH_IN con instrumentId, type, size y price explícitos', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId,
+        instrumentId: 1,
+        side: 'CASH_IN',
+        type: 'MARKET',
+        size: 25000,
+        price: 1,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ status: 'FILLED', size: 25000 });
+
+      const portfolio = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+      expect(portfolio.body.availableCash).toBe(75000);
+    });
+
+    it('CASH_OUT por más de lo disponible queda REJECTED (pero se persiste)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/v1/orders')
+        .send({ userId, side: 'CASH_OUT', amount: 200000 });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ status: 'REJECTED' });
+    });
+
+    it('respeta la Idempotency-Key igual que POST /orders/cash', async () => {
+      const enviar = () =>
+        request(app.getHttpServer())
+          .post('/v1/orders')
+          .set('Idempotency-Key', `cash-via-orders-${userId}`)
+          .send({ userId, side: 'CASH_IN', amount: 1000 });
+
+      const primera = await enviar();
+      const segunda = await enviar();
+
+      expect(primera.status).toBe(201);
+      expect(segunda.body.id).toBe(primera.body.id);
+
+      const portfolio = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+      expect(portfolio.body.availableCash).toBe(76000);
     });
   });
 

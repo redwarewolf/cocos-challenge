@@ -21,10 +21,17 @@ import {
 import { User } from '../database/entities/user.entity';
 import { ValuationService } from '../valuation/valuation.service';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
-import { CreateOrderDto } from './dto/create-order.dto';
+import {
+  CashOrderDto,
+  CreateOrderDto,
+  isCashOrder,
+} from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { IdempotentOrderWriter } from './idempotent-order-writer';
 import { OrderPricingService } from './order-pricing.service';
+
+/** Un peso vale un peso: precio con el que se persiste todo movimiento de cash. */
+const CASH_PRICE = 1;
 
 @Injectable()
 export class OrdersService {
@@ -46,6 +53,11 @@ export class OrdersService {
         'Provide exactly one of "size" or "amount"',
       );
     }
+
+    if (isCashOrder(dto)) {
+      return this.createCashFromOrder(dto, idempotencyKey);
+    }
+
     if (dto.type === OrderType.LIMIT && dto.price === undefined) {
       throw new BadRequestException('"price" is required for LIMIT orders');
     }
@@ -95,6 +107,50 @@ export class OrdersService {
     );
   }
 
+  /**
+   * Movimiento de cash pedido por `POST /orders`, con la forma de una orden. Los campos que solo
+   * tienen sentido para BUY/SELL tienen un único valor posible acá —el instrumento MONEDA, MARKET
+   * y precio 1—, así que se aceptan con ese valor y se rechazan con cualquier otro: un `CASH_IN`
+   * sobre una acción, o a un precio que no sea 1, no describe nada que pueda existir.
+   */
+  private async createCashFromOrder(
+    dto: CashOrderDto,
+    idempotencyKey?: string,
+  ): Promise<Order> {
+    if (dto.type !== undefined && dto.type !== OrderType.MARKET) {
+      throw new BadRequestException(
+        'CASH_IN/CASH_OUT movements are always MARKET',
+      );
+    }
+    if (dto.price !== undefined && dto.price !== CASH_PRICE) {
+      throw new BadRequestException(
+        `CASH_IN/CASH_OUT movements are always priced at ${CASH_PRICE}`,
+      );
+    }
+
+    // Con precio 1, el monto y la cantidad son el mismo número, así que sirve cualquiera de los dos.
+    const amount = (dto.amount ?? dto.size)!;
+    if (!Number.isInteger(amount)) {
+      throw new BadRequestException(
+        'CASH_IN/CASH_OUT movements only accept whole pesos',
+      );
+    }
+
+    if (dto.instrumentId !== undefined) {
+      const cashInstrument = await this.valuationService.getCashInstrument();
+      if (dto.instrumentId !== cashInstrument.id) {
+        throw new BadRequestException(
+          `CASH_IN/CASH_OUT movements only apply to the cash instrument (${cashInstrument.ticker})`,
+        );
+      }
+    }
+
+    return this.createCashMovement(
+      { userId: dto.userId, side: dto.side, amount },
+      idempotencyKey,
+    );
+  }
+
   async createCashMovement(
     dto: CreateCashMovementDto,
     idempotencyKey?: string,
@@ -127,7 +183,7 @@ export class OrdersService {
           side: dto.side,
           type: OrderType.MARKET,
           size: dto.amount,
-          price: (1).toFixed(2),
+          price: CASH_PRICE.toFixed(2),
           status,
         };
       },

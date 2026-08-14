@@ -32,7 +32,12 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Envía una orden de compra/venta (MARKET o LIMIT)' })
+  @ApiOperation({
+    summary:
+      'Envía una orden de compra/venta (MARKET o LIMIT) o un movimiento de cash',
+    description:
+      'BUY/SELL operan un instrumento. CASH_IN/CASH_OUT depositan o retiran pesos y se delegan en la misma lógica que POST /orders/cash: el monto se toma de `amount` o de `size`, y `instrumentId`, `type` y `price`, si vienen, tienen que valer lo único que pueden valer en un movimiento de cash (el instrumento MONEDA, MARKET y 1).',
+  })
   @ApiHeader({
     name: 'Idempotency-Key',
     required: false,
@@ -60,6 +65,8 @@ export class OrdersController {
   @ApiOperation({
     summary:
       'Deposita (CASH_IN) o retira (CASH_OUT) pesos de la cuenta de un usuario',
+    description:
+      'Forma canónica de un movimiento de cash, con el payload ajustado. POST /orders acepta los mismos sides con la forma de una orden.',
   })
   @ApiHeader({
     name: 'Idempotency-Key',
