@@ -852,7 +852,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": 2,\n  \"side\": \"CASH_IN\",\n  \"type\": \"MARKET\",\n  \"size\": 1000,\n  \"price\": 1\n}",
+              "raw": "{\n  \"userId\": 2,\n  \"instrumentId\": 66,\n  \"side\": \"CASH_IN\",\n  \"type\": \"MARKET\",\n  \"size\": 1000,\n  \"price\": 1\n}",
               "options": {
                 "raw": {
                   "language": "json"

@@ -151,7 +151,7 @@ sea 1 no describe nada que pueda existir.
 
 ```json
 { "userId": 2, "side": "CASH_IN", "amount": 50000 }
-{ "userId": 2, "side": "CASH_IN", "type": "MARKET", "size": 50000, "price": 1 }
+{ "userId": 2, "instrumentId": 66, "side": "CASH_IN", "type": "MARKET", "size": 50000, "price": 1 }
 ```
 
 ### `POST /v1/orders/cash`
