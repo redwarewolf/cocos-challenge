@@ -37,9 +37,11 @@ export class IdempotentOrderWriter {
   ) {}
 
   /**
-   * Si viene `idempotencyKey`, se busca primero una orden ya guardada con esa key — caso
-   * común, el cliente reintentó un POST después de un timeout sin haber recibido la
-   * respuesta original. Si existe, se devuelve directamente, sin tomar el lock ni volver a
+   * Si viene `idempotencyKey`, se busca primero una orden ya guardada de *ese usuario* con
+   * esa key — caso común, el cliente reintentó un POST después de un timeout sin haber
+   * recibido la respuesta original. El filtro por `userId` no es decorativo: la key la elige
+   * el cliente, así que dos usuarios pueden mandar la misma y buscar solo por key devolvería
+   * la orden ajena. Si existe, se devuelve directamente, sin tomar el lock ni volver a
    * calcular nada. Si no existe, se ejecuta `computeData` bajo el advisory lock de siempre
    * (ver `saveOrder` para cómo se resuelve la carrera rara de dos requests con la misma key
    * llegando casi al mismo tiempo).
@@ -51,7 +53,7 @@ export class IdempotentOrderWriter {
   ): Promise<Order> {
     if (idempotencyKey) {
       const existing = await this.orderRepository.findOne({
-        where: { idempotencyKey },
+        where: { userId, idempotencyKey },
       });
       if (existing) {
         return existing;
@@ -73,8 +75,11 @@ export class IdempotentOrderWriter {
    * `ON CONFLICT DO NOTHING` (vía `.orIgnore()`) en vez de un `INSERT` liso: si dos
    * requests con la misma key llegan casi al mismo tiempo, la que pierde la carrera no
    * falla, simplemente no inserta nada. En ambos casos —ganamos o perdimos la carrera— la
-   * fila con esa key ya existe en la DB después del insert, así que un `findOne` la
-   * resuelve sin necesidad de inspeccionar códigos de error.
+   * fila de ese usuario con esa key ya existe en la DB después del insert, así que un
+   * `findOne` la resuelve sin necesidad de inspeccionar códigos de error.
+   *
+   * `.orIgnore()` genera un `ON CONFLICT DO NOTHING` sin target, así que sigue funcionando
+   * igual contra la constraint compuesta `(userid, idempotencykey)`.
    */
   private async saveOrder(
     manager: EntityManager,
@@ -96,7 +101,7 @@ export class IdempotentOrderWriter {
       .execute();
 
     const order = await orderRepo.findOne({
-      where: { idempotencyKey: data.idempotencyKey },
+      where: { userId: data.userId, idempotencyKey: data.idempotencyKey },
     });
     if (!order) {
       throw new Error(
