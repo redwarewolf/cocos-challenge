@@ -749,10 +749,10 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
   });
 
   describe('GET /orders — historial paginado', () => {
-    // Historial construido acá y no heredado de los bloques anteriores. Además de quitar
-    // la dependencia de orden, esto permite asertar cantidades exactas: antes había que
-    // conformarse con `greaterThan(0)` porque el total dependía de cuántas órdenes
-    // hubieran dejado los tests de arriba.
+    // Historial construido acá y no heredado de los bloques anteriores. Por eso los
+    // asserts pueden ser cantidades exactas: si el total dependiera de cuántas órdenes
+    // dejaron los tests de arriba, habría que conformarse con `greaterThan(0)` — que pasa
+    // igual aunque el filtro por status devuelva de más.
     let userId: number;
     const comprasFilled = 5;
     const totalOrdenes = comprasFilled + 2; // + el CASH_IN inicial + 1 SELL rechazada

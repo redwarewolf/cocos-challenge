@@ -26,7 +26,7 @@ export const PAGE_SIZE = resolvePageSize(process.env.PAGE_SIZE);
 
 export interface AppConfig {
   /**
-   * No se valida acá (se evaluó y se descartó — ver issue #11): si falta o está mal
+   * No se valida acá a propósito: si falta o está mal
    * escrita, el propio driver de Postgres/TypeORM falla al conectar con un error
    * suficientemente claro sobre cuál es el problema.
    */

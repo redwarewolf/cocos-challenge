@@ -12,8 +12,8 @@ let container: StartedPostgreSqlContainer | undefined;
 
 /**
  * Levanta un Postgres real (Testcontainers), corre nuestras migraciones reales contra
- * él (las mismas que se aplican a la Neon de Cocos — issue #27, único origen de verdad
- * del esquema, ya no un schema.sql mantenido a mano) y carga un seed de test propio, y
+ * él (las mismas que se aplican a la Neon de Cocos, único origen de verdad del esquema) y
+ * carga un seed de test propio, y
  * apunta `process.env.DATABASE_URL`/`DB_SSL` a esa instancia. Se usa en vez de la base
  * compartida de Neon para que los e2e no dependan de la red ni puedan pisar datos
  * reales, para poder ejercitar features Postgres-específicas (CTEs, DISTINCT ON,

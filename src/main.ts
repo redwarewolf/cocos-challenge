@@ -12,7 +12,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
-  // Versionado por URI (issue #34): todas las rutas quedan bajo /v1/... salvo las que
+  // Versionado por URI: todas las rutas quedan bajo /v1/... salvo las que
   // declaren explícitamente VERSION_NEUTRAL (ver HealthController). /docs y /docs-json
   // no pasan por acá: SwaggerModule los monta aparte, no como rutas de un controller.
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });

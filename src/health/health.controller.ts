@@ -8,7 +8,7 @@ import {
 } from '@nestjs/terminus';
 
 /**
- * VERSION_NEUTRAL (issue #34): un healthcheck no debería depender de qué versión de la
+ * VERSION_NEUTRAL: un healthcheck no debería depender de qué versión de la
  * API se le pida — queda en /health, sin el prefijo /v1 que llevan el resto de las rutas.
  */
 @ApiTags('health')

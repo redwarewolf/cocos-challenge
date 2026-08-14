@@ -23,8 +23,7 @@ export interface OrderData {
 
 /**
  * Persiste una orden/movimiento de forma idempotente y protegida por el advisory lock del
- * usuario (issue #35, extraído de OrdersService — antes `createWithIdempotency`/`saveOrder`).
- * No sabe nada de BUY/SELL/CASH_IN/CASH_OUT: recibe una función `computeData` que calcula
+ * usuario. No sabe nada de BUY/SELL/CASH_IN/CASH_OUT: recibe una función `computeData` que calcula
  * los campos de la orden (bajo el lock, con acceso al `manager` transaccional) y se encarga
  * de la idempotencia y la concurrencia alrededor de eso.
  */

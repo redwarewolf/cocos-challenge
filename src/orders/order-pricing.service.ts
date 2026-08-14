@@ -10,8 +10,8 @@ import {
 } from '../database/entities/order.entity';
 
 /**
- * Reglas de negocio de precio/tamaño/estado específicas de BUY/SELL (issue #35, extraído
- * de OrdersService) — no las usan los movimientos de cash (CASH_IN/CASH_OUT), que tienen
+ * Reglas de negocio de precio/tamaño/estado específicas de BUY/SELL — no las usan los
+ * movimientos de cash (CASH_IN/CASH_OUT), que tienen
  * su propia regla mucho más simple, inline en OrdersService.createCashMovement.
  */
 @Injectable()

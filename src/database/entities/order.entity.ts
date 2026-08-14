@@ -70,7 +70,7 @@ export class Order {
   datetime: Date;
 
   /**
-   * Header `Idempotency-Key` opcional (issue #8): si un cliente reintenta un POST con
+   * Header `Idempotency-Key` opcional: si un cliente reintenta un POST con
    * la misma key, se devuelve esta fila en vez de crear una orden duplicada. Columna
    * agregada vía migración aditiva, no forma parte del esquema original de Cocos.
    *
