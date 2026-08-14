@@ -37,7 +37,9 @@ export class PortfolioPositionResponseDto {
 
   @ApiProperty({
     example: 8800,
-    description: 'Costo neto invertido (Σ BUY − Σ SELL, en pesos)',
+    description:
+      'Costo de la tenencia actual, por costo promedio ponderado: ' +
+      'Σ(size·price)(BUY) / Σ size(BUY) × quantity',
   })
   totalCost: number;
 

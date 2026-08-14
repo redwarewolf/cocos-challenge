@@ -117,7 +117,8 @@ export class ValuationService {
       ticker: string;
       name: string;
       quantity: string;
-      netCost: string;
+      buyAmount: string;
+      buySize: string;
       lastClose: string | null;
       previousClose: string | null;
     }[] = await this.orderRepository.manager.query(
@@ -126,7 +127,10 @@ export class ValuationService {
         SELECT
           o.instrumentid,
           SUM(CASE WHEN o.side = 'BUY' THEN o.size ELSE -o.size END) AS quantity,
-          SUM(CASE WHEN o.side = 'BUY' THEN o.size * o.price ELSE -(o.size * o.price) END) AS net_cost
+          -- Solo las compras: el costo de lo que queda en cartera no depende del precio
+          -- al que se vendió el resto (ver el cálculo de totalCost más abajo).
+          SUM(CASE WHEN o.side = 'BUY' THEN o.size * o.price ELSE 0 END) AS buy_amount,
+          SUM(CASE WHEN o.side = 'BUY' THEN o.size ELSE 0 END) AS buy_size
         FROM orders o
         INNER JOIN instruments i ON i.id = o.instrumentid
         WHERE o.userid = $1 AND o.status = 'FILLED' AND o.side IN ('BUY', 'SELL') AND i.type <> 'MONEDA'
@@ -142,7 +146,8 @@ export class ValuationService {
         i.ticker,
         i.name,
         po.quantity,
-        po.net_cost AS "netCost",
+        po.buy_amount AS "buyAmount",
+        po.buy_size AS "buySize",
         lp.close AS "lastClose",
         lp.previousclose AS "previousClose"
       FROM position_orders po
@@ -156,7 +161,25 @@ export class ValuationService {
 
     return rows.map((row) => {
       const quantity = new Decimal(row.quantity);
-      const totalCost = new Decimal(row.netCost);
+
+      // Costo promedio ponderado: precio promedio de compra × lo que queda en cartera.
+      // Cada venta se considera consumida al costo promedio, que es lo que hace la
+      // contabilidad real — no es una aproximación de compromiso.
+      //
+      // La alternativa obvia (Σ BUY − Σ SELL) es flujo de caja neto, no costo: coincide
+      // solo mientras no haya ventas, y después miente. Vendiendo con ganancia puede dar
+      // negativo (un costo negativo no existe) y, peor, sin llegar a negativo distorsiona
+      // el rendimiento sin ninguna señal visible.
+      //
+      // Difiere del promedio ponderado "running" (que recalcularía el promedio después de
+      // cada compra) solo si se intercalan compras y ventas; si todas las compras preceden
+      // a las ventas, son idénticos. La versión exacta necesita window functions con
+      // estado ordenado por datetime — ver README.
+      const buySize = new Decimal(row.buySize);
+      const totalCost = buySize.greaterThan(0)
+        ? new Decimal(row.buyAmount).dividedBy(buySize).times(quantity)
+        : new Decimal(0);
+
       const lastClose =
         row.lastClose === null ? new Decimal(0) : new Decimal(row.lastClose);
       const marketValue = quantity.times(lastClose);

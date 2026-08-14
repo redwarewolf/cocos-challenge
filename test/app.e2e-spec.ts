@@ -7,6 +7,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
 import type { App } from 'supertest/types';
+import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { startTestDatabase, stopTestDatabase } from './setup/test-database';
 
@@ -192,6 +193,46 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       const res = await request(app.getHttpServer()).get('/v1/portfolio/999');
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('Costo de una posición con ventas (costo promedio ponderado)', () => {
+    // Bloque autocontenido: arma su propio usuario e historial y no depende de lo que
+    // hayan dejado los tests anteriores. Las órdenes se insertan directo en la DB
+    // porque hace falta una venta a un precio distinto del de compra, y una MARKET
+    // siempre se llena al último close (900 en el seed).
+    const userId = 3;
+
+    beforeAll(async () => {
+      const dataSource = app.get(DataSource);
+      await dataSource.query(
+        `INSERT INTO users (id, email, accountNumber) VALUES (3, 'wac@test.com', '90003')`,
+      );
+      // BUY 10 @ 800 y SELL 5 @ 2000: quedan 5 a un costo promedio de 800.
+      await dataSource.query(
+        `INSERT INTO orders (instrumentId, userId, size, price, side, status, "type", datetime) VALUES
+           (2, 3, 10, 800,  'BUY',  'FILLED', 'MARKET', '2024-01-03 10:00:00'),
+           (2, 3, 5,  2000, 'SELL', 'FILLED', 'MARKET', '2024-01-03 11:00:00')`,
+      );
+    });
+
+    it('el costo es el promedio de compra × la tenencia, y nunca queda negativo', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+
+      const position = res.body.positions.find(
+        (p: { instrumentId: number }) => p.instrumentId === 2,
+      ) as { quantity: number; totalCost: number; performancePct: number };
+
+      expect(position.quantity).toBe(5);
+      // 8000 / 10 = 800 de costo promedio × 5 que quedan = 4000. La fórmula anterior
+      // (Σ BUY − Σ SELL) daba 8000 − 10000 = -2000, y con ese costo negativo el
+      // performancePct caía en el guard `> 0` y se reportaba 0% en la posición más
+      // rentable de la cuenta.
+      expect(position.totalCost).toBe(4000);
+      // 5 × 900 (último close del seed) = 4500 ⇒ (4500 - 4000) / 4000 = 12.5%
+      expect(position.performancePct).toBe(12.5);
     });
   });
 

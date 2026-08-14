@@ -130,14 +130,15 @@ describe('ValuationService', () => {
   });
 
   describe('getPositions', () => {
-    it('calcula marketValue y performancePct a partir de quantity/netCost/lastClose', async () => {
+    it('calcula marketValue y performancePct a partir de quantity/buyAmount/lastClose', async () => {
       queryFn.mockResolvedValue([
         {
           instrumentId: 47,
           ticker: 'PAMP',
           name: 'Pampa Holding S.A.',
           quantity: '40',
-          netCost: '37100.00',
+          buyAmount: '37100.00',
+          buySize: '40',
           lastClose: '925.85',
           previousClose: '900.00',
         },
@@ -164,7 +165,8 @@ describe('ValuationService', () => {
           ticker: 'PAMP',
           name: 'Pampa Holding S.A.',
           quantity: '40',
-          netCost: '37100.00',
+          buyAmount: '37100.00',
+          buySize: '40',
           lastClose: '925.85',
           previousClose: '900.00',
         },
@@ -188,7 +190,8 @@ describe('ValuationService', () => {
           ticker: 'X',
           name: 'X',
           quantity: '10',
-          netCost: '1000.00',
+          buyAmount: '1000.00',
+          buySize: '10',
           lastClose: '90',
           previousClose: '100',
         },
@@ -206,7 +209,8 @@ describe('ValuationService', () => {
           ticker: 'X',
           name: 'X',
           quantity: '10',
-          netCost: '1000.00',
+          buyAmount: '1000.00',
+          buySize: '10',
           lastClose: '100',
           previousClose: null,
         },
@@ -226,7 +230,8 @@ describe('ValuationService', () => {
           ticker: 'X',
           name: 'X',
           quantity: '10',
-          netCost: '1000.00',
+          buyAmount: '1000.00',
+          buySize: '10',
           lastClose: '100',
           previousClose: '0',
         },
@@ -244,7 +249,8 @@ describe('ValuationService', () => {
           ticker: 'X',
           name: 'X',
           quantity: '10',
-          netCost: '0.00',
+          buyAmount: '0.00',
+          buySize: '10',
           lastClose: '100',
           previousClose: '95',
         },
@@ -262,7 +268,8 @@ describe('ValuationService', () => {
           ticker: 'X',
           name: 'X',
           quantity: '10',
-          netCost: '1000.00',
+          buyAmount: '1000.00',
+          buySize: '10',
           lastClose: null,
           previousClose: '100',
         },
@@ -294,7 +301,8 @@ describe('ValuationService', () => {
           ticker: 'X',
           name: 'X',
           quantity: '100',
-          netCost: '1990.00',
+          buyAmount: '1990.00',
+          buySize: '100',
           lastClose: '19.90',
           previousClose: '19.90',
         },
@@ -303,6 +311,101 @@ describe('ValuationService', () => {
       const [position] = await service.getPositions(1);
 
       expect(position.marketValue).toBe(1990);
+      expect(position.performancePct).toBe(0);
+    });
+
+    it('el costo no depende del precio al que se vendió: vender con ganancia no lo vuelve negativo', async () => {
+      // Historia: BUY 10 @ 800 y SELL 5 @ 2000. Quedan 5 a un costo promedio de 800.
+      // La fórmula anterior (Σ BUY − Σ SELL) daba 8000 − 10000 = -2000: un costo
+      // negativo, que además hacía caer el performancePct en el guard `> 0` y lo
+      // reportaba como 0% justo en el caso donde más se ganó.
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 1,
+          ticker: 'X',
+          name: 'X',
+          quantity: '5',
+          buyAmount: '8000.00',
+          buySize: '10',
+          lastClose: '900',
+          previousClose: '900',
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      expect(position.totalCost).toBe(4000);
+      expect(position.marketValue).toBe(4500);
+      expect(position.performancePct).toBe(12.5);
+    });
+
+    it('distorsiona el rendimiento aunque el costo no llegue a ser negativo', async () => {
+      // Historia: BUY 10 @ 100 y SELL 5 @ 150, cotización actual 160.
+      // La fórmula anterior daba un costo de 1000 − 750 = 250 y un performancePct de
+      // (800 − 250) / 250 = 220%: positivo, plausible y sin disparar ningún guard,
+      // cuando el rendimiento real de la posición es 60% (de 100 a 160).
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 1,
+          ticker: 'X',
+          name: 'X',
+          quantity: '5',
+          buyAmount: '1000.00',
+          buySize: '10',
+          lastClose: '160',
+          previousClose: '160',
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      expect(position.totalCost).toBe(500);
+      expect(position.marketValue).toBe(800);
+      expect(position.performancePct).toBe(60);
+    });
+
+    it('pondera el costo cuando se compró a precios distintos', async () => {
+      // BUY 10 @ 100 + BUY 10 @ 200 = 3000 por 20 unidades ⇒ promedio 150.
+      // Quedan 15 en cartera ⇒ costo 2250, contra un valor de mercado de 3000.
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 1,
+          ticker: 'X',
+          name: 'X',
+          quantity: '15',
+          buyAmount: '3000.00',
+          buySize: '20',
+          lastClose: '200',
+          previousClose: '200',
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      expect(position.totalCost).toBe(2250);
+      expect(position.marketValue).toBe(3000);
+      expect(position.performancePct).toBe(33.33);
+    });
+
+    it('totalCost es 0 si no hay compras (guard de división por cero)', async () => {
+      // No es alcanzable con datos consistentes —no se puede tener tenencia sin haber
+      // comprado— pero el promedio divide por buySize, así que el guard va igual.
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 1,
+          ticker: 'X',
+          name: 'X',
+          quantity: '5',
+          buyAmount: '0.00',
+          buySize: '0',
+          lastClose: '100',
+          previousClose: '100',
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      expect(position.totalCost).toBe(0);
       expect(position.performancePct).toBe(0);
     });
   });
@@ -317,7 +420,8 @@ describe('ValuationService', () => {
             ticker: 'PAMP',
             name: 'Pampa Holding S.A.',
             quantity: '40',
-            netCost: '37100.00',
+            buyAmount: '37100.00',
+            buySize: '40',
             lastClose: '925.85',
             previousClose: '900.00',
           },
