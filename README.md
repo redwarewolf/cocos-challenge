@@ -467,7 +467,7 @@ npm run test:cov  # ídem + reporte de cobertura (con umbral mínimo configurado
 npm run test:e2e  # e2e contra un Postgres real descartable (requiere Docker)
 ```
 
-**Unit tests** (`src/**/*.spec.ts`, 103 tests): uno por servicio/colaborador y uno por controller,
+**Unit tests** (`src/**/*.spec.ts`, 122 tests): uno por servicio/colaborador y uno por controller,
 con los repositorios/`EntityManager`/servicios mockeados en memoria — no dependen de la red ni de la
 base compartida, así que corren rápido y determinísticamente (ninguno requiere Docker). Los tests de
 controller solo verifican la delegación (que llaman al método del service correcto con los
@@ -487,7 +487,7 @@ contra la DB real. Con esa exclusión, `npm run test:cov` reporta cobertura solo
 con un `coverageThreshold` en `package.json` un poco por debajo de eso para detectar regresiones sin
 ser un número arbitrario.
 
-**E2E tests** (`test/app.e2e-spec.ts`, 47 tests): levantan un Postgres real y descartable con
+**E2E tests** (`test/app.e2e-spec.ts`, 52 tests): levantan un Postgres real y descartable con
 [Testcontainers](https://node.testcontainers.org/) (`test/setup/test-database.ts`), le corren las
 migraciones reales del proyecto (no un esquema hardcodeado — issue #27) y cargan
 `test/setup/seed.sql` (seed propio y determinístico, no el de Cocos), y corren la app de punta a
@@ -498,6 +498,21 @@ container se crea y se destruye en cada corrida. Para que esto funcione, `TypeOr
 (`src/database/data-source.ts`) — la conexión se resuelve recién cuando Nest bootea la app, no al
 importar el módulo, así el test puede pisar `DATABASE_URL`/`DB_SSL` _antes_ de ese momento. En
 dev/prod normal el comportamiento no cambia.
+
+**Aislamiento entre bloques**: cada `describe` con estado crea su propio usuario (helper
+`crearUsuario()`, que deja que la secuencia asigne el id) y arma sus propias órdenes, en vez de
+heredar lo que dejaron los anteriores. Los usuarios del seed quedan reservados para el bloque que
+verifica el estado inicial, que es de solo lectura.
+
+No es prolijidad: un test acoplado al orden falla por razones que no tienen que ver con el código
+que prueba, y esa señal es peor que no tenerla. El aislamiento además permite asertar cantidades
+exactas donde antes había que conformarse con `greaterThan(0)` — el historial ahora verifica un total
+de 7 órdenes con 1 sola `REJECTED`, porque sabe exactamente cuáles creó.
+
+Los `it` **dentro** de un bloque sí pueden ser una secuencia deliberada (comprar → vender →
+cancelar): ahí el orden es el flujo bajo prueba, no un accidente. Lo que se eliminó es la dependencia
+*entre* bloques. Se verifica corriendo cada uno aislado con `npx jest --config ./test/jest-e2e.json
+-t "<nombre del bloque>"`.
 
 **CI** (`.github/workflows/ci.yml`): en cada push/PR a `main` corre, en este orden, lint (sin
 `--fix`, falla si hay algo para corregir), type-check, unit tests + cobertura, e2e (Testcontainers —
