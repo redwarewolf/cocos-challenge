@@ -32,8 +32,15 @@ export class PortfolioPositionResponseDto {
   })
   previousClose: number | null;
 
-  @ApiProperty({ example: 9000, description: 'quantity × lastPrice' })
-  marketValue: number;
+  @ApiProperty({
+    example: 9000,
+    nullable: true,
+    type: Number,
+    description:
+      'quantity × lastPrice. null si el instrumento no tiene cotización: el valor es ' +
+      'desconocido, no cero, y la posición no suma a totalAccountValue.',
+  })
+  marketValue: number | null;
 
   @ApiProperty({
     example: 8800,
@@ -45,10 +52,13 @@ export class PortfolioPositionResponseDto {
 
   @ApiProperty({
     example: 2.27,
+    nullable: true,
+    type: Number,
     description:
-      'Rendimiento total contra lo invertido: (marketValue − totalCost) / totalCost × 100',
+      'Rendimiento total contra lo invertido: (marketValue − totalCost) / totalCost × 100. ' +
+      'null si no hay marketValue contra el cual medir el costo.',
   })
-  performancePct: number;
+  performancePct: number | null;
 
   @ApiProperty({
     example: 4.65,
@@ -71,6 +81,18 @@ export class PortfolioResponseDto {
   @ApiProperty({ type: [PortfolioPositionResponseDto] })
   positions: PortfolioPositionResponseDto[];
 
-  @ApiProperty({ example: 99000, description: 'availableCash + Σ marketValue' })
+  @ApiProperty({
+    example: 99000,
+    description:
+      'availableCash + Σ marketValue, salteando las posiciones sin cotización',
+  })
   totalAccountValue: number;
+
+  @ApiProperty({
+    example: false,
+    description:
+      'true si alguna posición quedó sin valuar, así el cliente sabe que ' +
+      'totalAccountValue no la incluye',
+  })
+  hasUnvaluedPositions: boolean;
 }

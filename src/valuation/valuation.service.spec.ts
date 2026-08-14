@@ -261,7 +261,7 @@ describe('ValuationService', () => {
       expect(position.performancePct).toBe(0);
     });
 
-    it('marketValue es 0 si el instrumento no tiene marketdata (lastClose null)', async () => {
+    it('marketValue y performancePct son null si el instrumento no tiene marketdata', async () => {
       queryFn.mockResolvedValue([
         {
           instrumentId: 1,
@@ -277,11 +277,15 @@ describe('ValuationService', () => {
 
       const [position] = await service.getPositions(1);
 
-      expect(position.marketValue).toBe(0);
-      expect(position.performancePct).toBe(-100);
+      // 0 daría -100% de rendimiento sobre una posición cuyo valor simplemente no se
+      // conoce: es la misma distinción que ya hace dailyReturnPct.
+      expect(position.marketValue).toBeNull();
+      expect(position.performancePct).toBeNull();
       // Sin cierre actual no hay retorno diario, aunque haya cierre anterior.
       expect(position.dailyReturnPct).toBeNull();
       expect(position.lastPrice).toBeNull();
+      // El costo sí se conoce: sale de las órdenes, no del mercado.
+      expect(position.totalCost).toBe(1000);
     });
 
     it('devuelve [] si el usuario no tiene posiciones', async () => {
@@ -433,6 +437,42 @@ describe('ValuationService', () => {
       expect(portfolio.availableCash).toBe(748571);
       expect(portfolio.positions).toHaveLength(1);
       expect(portfolio.totalAccountValue).toBeCloseTo(748571 + 37034, 5);
+      expect(portfolio.hasUnvaluedPositions).toBe(false);
+    });
+
+    it('excluye del total las posiciones sin cotización y lo señala', async () => {
+      queryFn
+        .mockResolvedValueOnce([{ available: '100000.00' }])
+        .mockResolvedValueOnce([
+          {
+            instrumentId: 47,
+            ticker: 'PAMP',
+            name: 'Pampa Holding S.A.',
+            quantity: '40',
+            buyAmount: '37100.00',
+            buySize: '40',
+            lastClose: '925.85',
+            previousClose: '900.00',
+          },
+          {
+            instrumentId: 10,
+            ticker: 'IRCP',
+            name: 'IRSA Propiedades',
+            quantity: '5',
+            buyAmount: '5000.00',
+            buySize: '5',
+            lastClose: null,
+            previousClose: null,
+          },
+        ]);
+
+      const portfolio = await service.getPortfolio(1);
+
+      // Solo suma PAMP: valuar IRCP en 0 hundiría el total por una posición que
+      // probablemente valga algo, y el cliente no tendría cómo notarlo.
+      expect(portfolio.totalAccountValue).toBeCloseTo(100000 + 37034, 5);
+      expect(portfolio.hasUnvaluedPositions).toBe(true);
+      expect(portfolio.positions).toHaveLength(2);
     });
 
     it('totalAccountValue = availableCash cuando no hay posiciones', async () => {
@@ -445,6 +485,7 @@ describe('ValuationService', () => {
       expect(portfolio.availableCash).toBe(0);
       expect(portfolio.positions).toEqual([]);
       expect(portfolio.totalAccountValue).toBe(0);
+      expect(portfolio.hasUnvaluedPositions).toBe(false);
     });
   });
 });

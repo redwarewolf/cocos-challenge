@@ -179,12 +179,24 @@ export class ValuationService {
         ? new Decimal(row.buyAmount).dividedBy(buySize).times(quantity)
         : new Decimal(0);
 
+      // `null` y no 0 cuando falta la cotización, por el mismo motivo que
+      // `dailyReturnPct`: el valor es desconocido, y un 0 reportaría -100% de
+      // rendimiento sobre una posición que puede valer cualquier cosa.
       const lastClose =
-        row.lastClose === null ? new Decimal(0) : new Decimal(row.lastClose);
-      const marketValue = quantity.times(lastClose);
-      const performancePct = totalCost.greaterThan(0)
-        ? marketValue.minus(totalCost).dividedBy(totalCost).times(100)
-        : new Decimal(0);
+        row.lastClose === null ? null : new Decimal(row.lastClose);
+      const marketValue = lastClose === null ? null : quantity.times(lastClose);
+
+      let performancePct: number | null = null;
+      if (marketValue !== null) {
+        performancePct = totalCost.greaterThan(0)
+          ? marketValue
+              .minus(totalCost)
+              .dividedBy(totalCost)
+              .times(100)
+              .toDecimalPlaces(2)
+              .toNumber()
+          : 0;
+      }
 
       // `previousclose` ya trae el cierre del día anterior en la misma fila de marketdata,
       // así que el retorno diario no necesita un self-join contra el día previo: alcanza
@@ -194,7 +206,7 @@ export class ValuationService {
       const previousClose =
         row.previousClose === null ? null : new Decimal(row.previousClose);
       const dailyReturnPct =
-        row.lastClose !== null &&
+        lastClose !== null &&
         previousClose !== null &&
         previousClose.greaterThan(0)
           ? lastClose
@@ -216,11 +228,14 @@ export class ValuationService {
         // `dailyReturnPct` es el único número que el cliente no podría reconstruir
         // (`lastPrice` se deduciría de marketValue/quantity, pero `previousClose` no sale
         // de ningún lado), y una fila de posición necesita el precio unitario igual.
-        lastPrice: row.lastClose === null ? null : lastClose.toNumber(),
+        lastPrice: lastClose === null ? null : lastClose.toNumber(),
         previousClose: previousClose === null ? null : previousClose.toNumber(),
-        marketValue: marketValue.toDecimalPlaces(2).toNumber(),
+        marketValue:
+          marketValue === null
+            ? null
+            : marketValue.toDecimalPlaces(2).toNumber(),
         totalCost: totalCost.toDecimalPlaces(2).toNumber(),
-        performancePct: performancePct.toDecimalPlaces(2).toNumber(),
+        performancePct,
         dailyReturnPct,
       };
     });
@@ -232,8 +247,10 @@ export class ValuationService {
       this.getPositions(userId),
     ]);
 
+    // Las posiciones sin cotización no suman: no se las puede valuar. `hasUnvaluedPositions`
+    // avisa que el total está incompleto, que si no el cliente no tendría cómo saberlo.
     const positionsValue = positions.reduce(
-      (sum, p) => sum.plus(p.marketValue),
+      (sum, p) => (p.marketValue === null ? sum : sum.plus(p.marketValue)),
       new Decimal(0),
     );
 
@@ -245,6 +262,7 @@ export class ValuationService {
         .plus(positionsValue)
         .toDecimalPlaces(2)
         .toNumber(),
+      hasUnvaluedPositions: positions.some((p) => p.marketValue === null),
     };
   }
 }
