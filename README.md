@@ -60,12 +60,15 @@ Los tres primeros son los que pide el challenge; el resto son bonus.
 {
   "userId": 1,
   "availableCash": 753000,
+  "reservedCash": 0,
+  "buyingPower": 753000,
   "positions": [
     {
       "instrumentId": 47,
       "ticker": "PAMP",
       "name": "Pampa Holding S.A.",
       "quantity": 40,
+      "reservedQuantity": 0,
       "lastPrice": 925.85,
       "previousClose": 900,
       "marketValue": 37034,
@@ -78,6 +81,12 @@ Los tres primeros son los que pide el challenge; el resto son bonus.
   "hasUnvaluedPositions": false
 }
 ```
+
+Una orden en estado `NEW` todavía no movió plata ni acciones, pero ya las compromete. Por eso el
+disponible viene en tres números: `availableCash` es lo liquidado, `reservedCash` lo comprometido en
+órdenes `BUY` pendientes, y `buyingPower` la diferencia — **es contra este último que se valida una
+orden nueva**. Por posición vale lo mismo con `quantity` y `reservedQuantity`. Cancelar una orden
+`NEW` libera lo comprometido de inmediato.
 
 Cada posición trae dos rendimientos, que responden preguntas distintas:
 

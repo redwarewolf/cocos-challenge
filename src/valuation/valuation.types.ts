@@ -3,6 +3,8 @@ export interface PortfolioPosition {
   ticker: string;
   name: string;
   quantity: number;
+  /** Acciones comprometidas en órdenes SELL en estado NEW: no se pueden volver a vender. */
+  reservedQuantity: number;
   /** `marketdata.close` más reciente. `null` solo si el instrumento no tiene marketdata. */
   lastPrice: number | null;
   /** Cierre del día anterior, del que sale `dailyReturnPct`. */
@@ -18,7 +20,12 @@ export interface PortfolioPosition {
 
 export interface Portfolio {
   userId: number;
+  /** Pesos liquidados: solo movimientos FILLED. */
   availableCash: number;
+  /** Pesos comprometidos en órdenes BUY en estado NEW. */
+  reservedCash: number;
+  /** `availableCash − reservedCash`: lo que se puede comprometer en una orden nueva. */
+  buyingPower: number;
   positions: PortfolioPosition[];
   totalAccountValue: number;
   /** `true` si alguna posición quedó sin valuar y no está incluida en el total. */
