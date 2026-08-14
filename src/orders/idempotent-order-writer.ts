@@ -9,8 +9,6 @@ import {
   OrderType,
 } from '../database/entities/order.entity';
 
-/** Datos de una orden/movimiento a punto de persistirse, sin `idempotencyKey` todavía
- * (la agrega `IdempotentOrderWriter` internamente). */
 export interface OrderData {
   userId: number;
   instrumentId: number;
@@ -22,10 +20,8 @@ export interface OrderData {
 }
 
 /**
- * Persiste una orden/movimiento de forma idempotente y protegida por el advisory lock del
- * usuario. No sabe nada de BUY/SELL/CASH_IN/CASH_OUT: recibe una función `computeData` que calcula
- * los campos de la orden (bajo el lock, con acceso al `manager` transaccional) y se encarga
- * de la idempotencia y la concurrencia alrededor de eso.
+ * Persiste una orden de forma idempotente y serializada por usuario. No sabe qué tipo de orden
+ * persiste: recibe una `computeData` que calcula los campos bajo el lock.
  */
 @Injectable()
 export class IdempotentOrderWriter {
@@ -36,19 +32,17 @@ export class IdempotentOrderWriter {
   ) {}
 
   /**
-   * La orden ya guardada de *ese usuario* con esa key se busca dos veces, y las dos hacen
-   * falta por motivos distintos.
+   * Upsert de una orden para un usuario: si ya existe una con esa `idempotencyKey` la devuelve, y
+   * si no la calcula con `computeData` y la inserta, serializado por el advisory lock del usuario.
    *
-   * El filtro por `userId` no es decorativo: la key la elige el cliente, así que dos usuarios
-   * pueden mandar la misma y buscar solo por key devolvería la orden ajena.
+   * La búsqueda corre dos veces, antes y dentro del lock: el lock se libera al commitear, así que
+   * una orden que se está escribiendo en paralelo recién es visible adentro.
    */
   async write(
     idempotencyKey: string | undefined,
     userId: number,
     computeData: (manager: EntityManager) => Promise<OrderData>,
   ): Promise<Order> {
-    // Optimización: un reintento tardío —el caso común, el cliente no recibió la respuesta
-    // original— se resuelve con un SELECT, sin encolarse detrás del advisory lock del usuario.
     if (idempotencyKey) {
       const existing = await this.findByKey(
         this.orderRepository,
@@ -63,12 +57,6 @@ export class IdempotentOrderWriter {
     return this.advisoryLock.withLock(userId, async (manager) => {
       const orderRepo = manager.getRepository(Order);
 
-      // Garantía de correctitud, y por eso va acá adentro: si el request original todavía
-      // estaba en vuelo, el chequeo de arriba no lo vio, pero el lock se libera recién al
-      // commitear, así que para cuando este llega su fila ya es visible. Sin este lookup se
-      // volvería a ejecutar `computeData`, que puede lanzar —el precio se movió y el
-      // `amount` ya no alcanza para una acción— y devolver un 4xx por una orden que existe y
-      // quedó FILLED.
       if (idempotencyKey) {
         const existing = await this.findByKey(
           orderRepo,
@@ -97,16 +85,10 @@ export class IdempotentOrderWriter {
   }
 
   /**
-   * Sin `idempotencyKey`, un `save()` normal alcanza (nunca puede chocar contra la
-   * constraint UNIQUE, que ignora los `NULL`). Con `idempotencyKey`, se inserta con
-   * `ON CONFLICT DO NOTHING` (vía `.orIgnore()`) en vez de un `INSERT` liso: si dos
-   * requests con la misma key llegan casi al mismo tiempo, la que pierde la carrera no
-   * falla, simplemente no inserta nada. En ambos casos —ganamos o perdimos la carrera— la
-   * fila de ese usuario con esa key ya existe en la DB después del insert, así que un
-   * `findOne` la resuelve sin necesidad de inspeccionar códigos de error.
-   *
-   * `.orIgnore()` genera un `ON CONFLICT DO NOTHING` sin target, así que sigue funcionando
-   * igual contra la constraint compuesta `(userid, idempotencykey)`.
+   * Con key, `.orIgnore()` genera un `ON CONFLICT DO NOTHING` sin target, que por eso cubre la
+   * constraint compuesta `(userid, idempotencykey)`: el que pierde la carrera no falla, no
+   * inserta, y relee la fila del que ganó. Sin key alcanza un `save()`, porque la UNIQUE
+   * ignora los `NULL`.
    */
   private async saveOrder(
     manager: EntityManager,
