@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Decimal from 'decimal.js';
+import { PinoLogger } from 'nestjs-pino';
 import { EntityManager, Repository } from 'typeorm';
 import {
   Instrument,
@@ -18,7 +19,10 @@ export class ValuationService {
     private readonly orderRepository: Repository<Order>,
     @InjectRepository(Instrument)
     private readonly instrumentRepository: Repository<Instrument>,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(ValuationService.name);
+  }
 
   /** Se resuelve por ticker en runtime en vez de hardcodear el id del instrumento ARS. */
   async getCashInstrument(): Promise<Instrument> {
@@ -233,94 +237,112 @@ export class ValuationService {
         WHERE userid = $1 AND instrumentid = po.instrumentid
           AND status = 'NEW' AND side = 'SELL'
       ) r ON true
-      WHERE po.quantity > 0
+      WHERE po.quantity <> 0
       ORDER BY i.ticker
       `,
       [userId],
     );
 
-    return rows.map((row) => {
-      const quantity = new Decimal(row.quantity);
+    // Una tenencia neta negativa significa más ventas FILLED que compras: no es un caso de
+    // negocio (la API impide vender de más) sino datos inconsistentes, y se avisa en vez de
+    // filtrarlos en silencio. El neto en cero sí se descarta sin más: es una posición cerrada.
+    const enDescubierto = rows.filter((row) => Number(row.quantity) < 0);
+    if (enDescubierto.length > 0) {
+      this.logger.warn(
+        {
+          userId,
+          instrumentIds: enDescubierto.map((row) => row.instrumentId),
+        },
+        'Tenencia neta negativa: hay más ventas FILLED que compras',
+      );
+    }
 
-      // Costo promedio ponderado: precio promedio de compra × lo que queda en cartera.
-      // Cada venta se considera consumida al costo promedio, que es lo que hace la
-      // contabilidad real — no es una aproximación de compromiso.
-      //
-      // La alternativa obvia (Σ BUY − Σ SELL) es flujo de caja neto, no costo: coincide
-      // solo mientras no haya ventas, y después miente. Vendiendo con ganancia puede dar
-      // negativo (un costo negativo no existe) y, peor, sin llegar a negativo distorsiona
-      // el rendimiento sin ninguna señal visible.
-      //
-      // Difiere del promedio ponderado "running" (que recalcularía el promedio después de
-      // cada compra) solo si se intercalan compras y ventas; si todas las compras preceden
-      // a las ventas, son idénticos. La versión exacta necesita window functions con
-      // estado ordenado por datetime — ver DECISIONS.md.
-      const buySize = new Decimal(row.buySize);
-      const totalCost = buySize.greaterThan(0)
-        ? new Decimal(row.buyAmount).dividedBy(buySize).times(quantity)
-        : new Decimal(0);
+    return rows
+      .filter((row) => Number(row.quantity) > 0)
+      .map((row) => {
+        const quantity = new Decimal(row.quantity);
 
-      // `null` y no 0 cuando falta la cotización, por el mismo motivo que
-      // `dailyReturnPct`: el valor es desconocido, y un 0 reportaría -100% de
-      // rendimiento sobre una posición que puede valer cualquier cosa.
-      const lastClose =
-        row.lastClose === null ? null : new Decimal(row.lastClose);
-      const marketValue = lastClose === null ? null : quantity.times(lastClose);
+        // Costo promedio ponderado: precio promedio de compra × lo que queda en cartera.
+        // Cada venta se considera consumida al costo promedio, que es lo que hace la
+        // contabilidad real — no es una aproximación de compromiso.
+        //
+        // La alternativa obvia (Σ BUY − Σ SELL) es flujo de caja neto, no costo: coincide
+        // solo mientras no haya ventas, y después miente. Vendiendo con ganancia puede dar
+        // negativo (un costo negativo no existe) y, peor, sin llegar a negativo distorsiona
+        // el rendimiento sin ninguna señal visible.
+        //
+        // Difiere del promedio ponderado "running" (que recalcularía el promedio después de
+        // cada compra) solo si se intercalan compras y ventas; si todas las compras preceden
+        // a las ventas, son idénticos. La versión exacta necesita window functions con
+        // estado ordenado por datetime — ver DECISIONS.md.
+        const buySize = new Decimal(row.buySize);
+        const totalCost = buySize.greaterThan(0)
+          ? new Decimal(row.buyAmount).dividedBy(buySize).times(quantity)
+          : new Decimal(0);
 
-      let performancePct: number | null = null;
-      if (marketValue !== null) {
-        performancePct = totalCost.greaterThan(0)
-          ? marketValue
-              .minus(totalCost)
-              .dividedBy(totalCost)
-              .times(100)
-              .toDecimalPlaces(2)
-              .toNumber()
-          : 0;
-      }
+        // `null` y no 0 cuando falta la cotización, por el mismo motivo que
+        // `dailyReturnPct`: el valor es desconocido, y un 0 reportaría -100% de
+        // rendimiento sobre una posición que puede valer cualquier cosa.
+        const lastClose =
+          row.lastClose === null ? null : new Decimal(row.lastClose);
+        const marketValue =
+          lastClose === null ? null : quantity.times(lastClose);
 
-      // `previousclose` ya trae el cierre del día anterior en la misma fila de marketdata,
-      // así que el retorno diario no necesita un self-join contra el día previo: alcanza
-      // con la fila que `latest_price` ya seleccionó. Da igual calcularlo por acción o
-      // sobre la posición entera (la cantidad se cancela), así que el porcentaje no
-      // depende de la tenencia.
-      const previousClose =
-        row.previousClose === null ? null : new Decimal(row.previousClose);
-      const dailyReturnPct =
-        lastClose !== null &&
-        previousClose !== null &&
-        previousClose.greaterThan(0)
-          ? lastClose
-              .minus(previousClose)
-              .dividedBy(previousClose)
-              .times(100)
-              .toDecimalPlaces(2)
-              .toNumber()
-          : // `null` y no 0: sin alguno de los dos precios el retorno es desconocido, y un
-            // 0 sería indistinguible de "el precio no se movió".
-            null;
+        let performancePct: number | null = null;
+        if (marketValue !== null) {
+          performancePct = totalCost.greaterThan(0)
+            ? marketValue
+                .minus(totalCost)
+                .dividedBy(totalCost)
+                .times(100)
+                .toDecimalPlaces(2)
+                .toNumber()
+            : 0;
+        }
 
-      return {
-        instrumentId: row.instrumentId,
-        ticker: row.ticker,
-        name: row.name,
-        quantity: quantity.toNumber(),
-        reservedQuantity: Number(row.reservedQuantity),
-        // Los dos precios que alimentan las métricas de arriba viajan en la respuesta:
-        // `dailyReturnPct` es el único número que el cliente no podría reconstruir
-        // (`lastPrice` se deduciría de marketValue/quantity, pero `previousClose` no sale
-        // de ningún lado), y una fila de posición necesita el precio unitario igual.
-        lastPrice: lastClose === null ? null : lastClose.toNumber(),
-        previousClose: previousClose === null ? null : previousClose.toNumber(),
-        marketValue:
-          marketValue === null
-            ? null
-            : marketValue.toDecimalPlaces(2).toNumber(),
-        totalCost: totalCost.toDecimalPlaces(2).toNumber(),
-        performancePct,
-        dailyReturnPct,
-      };
-    });
+        // `previousclose` ya trae el cierre del día anterior en la misma fila de marketdata,
+        // así que el retorno diario no necesita un self-join contra el día previo: alcanza
+        // con la fila que `latest_price` ya seleccionó. Da igual calcularlo por acción o
+        // sobre la posición entera (la cantidad se cancela), así que el porcentaje no
+        // depende de la tenencia.
+        const previousClose =
+          row.previousClose === null ? null : new Decimal(row.previousClose);
+        const dailyReturnPct =
+          lastClose !== null &&
+          previousClose !== null &&
+          previousClose.greaterThan(0)
+            ? lastClose
+                .minus(previousClose)
+                .dividedBy(previousClose)
+                .times(100)
+                .toDecimalPlaces(2)
+                .toNumber()
+            : // `null` y no 0: sin alguno de los dos precios el retorno es desconocido, y un
+              // 0 sería indistinguible de "el precio no se movió".
+              null;
+
+        return {
+          instrumentId: row.instrumentId,
+          ticker: row.ticker,
+          name: row.name,
+          quantity: quantity.toNumber(),
+          reservedQuantity: Number(row.reservedQuantity),
+          // Los dos precios que alimentan las métricas de arriba viajan en la respuesta:
+          // `dailyReturnPct` es el único número que el cliente no podría reconstruir
+          // (`lastPrice` se deduciría de marketValue/quantity, pero `previousClose` no sale
+          // de ningún lado), y una fila de posición necesita el precio unitario igual.
+          lastPrice: lastClose === null ? null : lastClose.toNumber(),
+          previousClose:
+            previousClose === null ? null : previousClose.toNumber(),
+          marketValue:
+            marketValue === null
+              ? null
+              : marketValue.toDecimalPlaces(2).toNumber(),
+          totalCost: totalCost.toDecimalPlaces(2).toNumber(),
+          performancePct,
+          dailyReturnPct,
+        };
+      });
   }
 
   async getPortfolio(userId: number): Promise<Portfolio> {

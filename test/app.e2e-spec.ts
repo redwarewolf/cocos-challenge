@@ -297,6 +297,35 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
   });
 
+  describe('Tenencia neta negativa', () => {
+    let userId: number;
+
+    beforeAll(async () => {
+      userId = await crearUsuario();
+      // Reproduce lo que hay en la base de Cocos para el usuario 1 sobre BMA: una compra y
+      // una venta mayor, las dos FILLED. Se insertan directo porque la API impide vender de
+      // más — el descubierto viene de datos cargados por fuera.
+      await dataSource.query(
+        `INSERT INTO orders (instrumentId, userId, size, price, side, status, "type", datetime) VALUES
+           (2, $1, 20, 1540, 'BUY',  'FILLED', 'MARKET', '2024-01-05 10:00:00'),
+           (2, $1, 30, 1530, 'SELL', 'FILLED', 'MARKET', '2024-01-05 11:00:00')`,
+        [userId],
+      );
+    });
+
+    it('la posición no se lista, pero el efectivo de la venta sí está', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.positions).toEqual([]);
+      // 30 × 1530 − 20 × 1540 = 15.100. El descubierto no se valúa, pero su mitad
+      // favorable ya está contada: es justamente lo que hace que valga la pena avisar.
+      expect(res.body.availableCash).toBe(15100);
+    });
+  });
+
   describe('Posición sobre un instrumento sin marketdata', () => {
     let userId: number;
 

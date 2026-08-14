@@ -106,6 +106,18 @@ limpio y solo se parsea una vez, sin encadenar nada — no hay error que introdu
 | `dailyReturnPct` | `(lastPrice − previousClose) / previousClose × 100`, o `null` |
 | `totalAccountValue` | `availableCash + Σ marketValue`, salteando las posiciones sin valuar |
 
+### Una tenencia negativa se reporta, no se filtra
+
+El listado descarta los netos que no son positivos, pero por dos motivos distintos. Un neto en cero
+es una posición cerrada y se omite sin más. Un neto **negativo** —más ventas `FILLED` que compras—
+no es un caso de negocio: la API impide vender de más, así que solo puede venir de datos cargados
+por fuera. Se descarta igual, porque valuar un descubierto que el sistema no modela sería inventar
+un número, pero queda un `warn` con el usuario y los instrumentos involucrados.
+
+La base provista tiene uno: el usuario 1 sobre `BMA`, con `BUY 20 @ 1540` y `SELL 30 @ 1530`, las
+dos `FILLED`. Lo que lo hace visible es la asimetría — la posición no se lista, pero los pesos de esa
+venta **sí** están contados en `availableCash`, incluidas las 10 acciones que nunca se compraron.
+
 ### Sin cotización el valor es desconocido, no cero
 
 Un instrumento puede no tener `marketdata` — en la base provista hay dos, `IRCP` y `PGR`. Valuar esa
