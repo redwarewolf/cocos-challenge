@@ -36,36 +36,64 @@ export class IdempotentOrderWriter {
   ) {}
 
   /**
-   * Si viene `idempotencyKey`, se busca primero una orden ya guardada de *ese usuario* con
-   * esa key — caso común, el cliente reintentó un POST después de un timeout sin haber
-   * recibido la respuesta original. El filtro por `userId` no es decorativo: la key la elige
-   * el cliente, así que dos usuarios pueden mandar la misma y buscar solo por key devolvería
-   * la orden ajena. Si existe, se devuelve directamente, sin tomar el lock ni volver a
-   * calcular nada. Si no existe, se ejecuta `computeData` bajo el advisory lock de siempre
-   * (ver `saveOrder` para cómo se resuelve la carrera rara de dos requests con la misma key
-   * llegando casi al mismo tiempo).
+   * La orden ya guardada de *ese usuario* con esa key se busca dos veces, y las dos hacen
+   * falta por motivos distintos.
+   *
+   * El filtro por `userId` no es decorativo: la key la elige el cliente, así que dos usuarios
+   * pueden mandar la misma y buscar solo por key devolvería la orden ajena.
    */
   async write(
     idempotencyKey: string | undefined,
     userId: number,
     computeData: (manager: EntityManager) => Promise<OrderData>,
   ): Promise<Order> {
+    // Optimización: un reintento tardío —el caso común, el cliente no recibió la respuesta
+    // original— se resuelve con un SELECT, sin encolarse detrás del advisory lock del usuario.
     if (idempotencyKey) {
-      const existing = await this.orderRepository.findOne({
-        where: { userId, idempotencyKey },
-      });
+      const existing = await this.findByKey(
+        this.orderRepository,
+        userId,
+        idempotencyKey,
+      );
       if (existing) {
         return existing;
       }
     }
 
     return this.advisoryLock.withLock(userId, async (manager) => {
+      const orderRepo = manager.getRepository(Order);
+
+      // Garantía de correctitud, y por eso va acá adentro: si el request original todavía
+      // estaba en vuelo, el chequeo de arriba no lo vio, pero el lock se libera recién al
+      // commitear, así que para cuando este llega su fila ya es visible. Sin este lookup se
+      // volvería a ejecutar `computeData`, que puede lanzar —el precio se movió y el
+      // `amount` ya no alcanza para una acción— y devolver un 4xx por una orden que existe y
+      // quedó FILLED.
+      if (idempotencyKey) {
+        const existing = await this.findByKey(
+          orderRepo,
+          userId,
+          idempotencyKey,
+        );
+        if (existing) {
+          return existing;
+        }
+      }
+
       const data = await computeData(manager);
       return this.saveOrder(manager, {
         ...data,
         idempotencyKey: idempotencyKey ?? null,
       });
     });
+  }
+
+  private findByKey(
+    repo: Repository<Order>,
+    userId: number,
+    idempotencyKey: string,
+  ): Promise<Order | null> {
+    return repo.findOne({ where: { userId, idempotencyKey } });
   }
 
   /**
@@ -99,9 +127,11 @@ export class IdempotentOrderWriter {
       .orIgnore()
       .execute();
 
-    const order = await orderRepo.findOne({
-      where: { userId: data.userId, idempotencyKey: data.idempotencyKey },
-    });
+    const order = await this.findByKey(
+      orderRepo,
+      data.userId,
+      data.idempotencyKey,
+    );
     if (!order) {
       throw new Error(
         `No se pudo crear ni encontrar la orden con Idempotency-Key ${data.idempotencyKey}`,
