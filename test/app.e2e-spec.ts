@@ -435,6 +435,20 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       });
     });
 
+    it('la posición reporta el retorno diario contra previousClose', async () => {
+      const res = await request(app.getHttpServer()).get('/v1/portfolio/2');
+
+      const position = res.body.positions.find(
+        (p: { instrumentId: number }) => p.instrumentId === 2,
+      ) as { dailyReturnPct: number; performancePct: number };
+
+      // El seed deja GGAL con close 900 y previousClose 800: (900 - 800) / 800 * 100.
+      expect(position.dailyReturnPct).toBe(12.5);
+      // Se compró justo al último close, así que todavía no hay rendimiento contra el
+      // costo — es lo que distingue las dos métricas.
+      expect(position.performancePct).toBe(0);
+    });
+
     it('400 si el amount no es positivo', async () => {
       const res = await request(app.getHttpServer())
         .post('/v1/orders/cash')

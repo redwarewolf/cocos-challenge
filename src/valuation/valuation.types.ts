@@ -6,6 +6,8 @@ export interface PortfolioPosition {
   marketValue: number;
   totalCost: number;
   performancePct: number;
+  /** `null` cuando falta el cierre actual o el anterior para el instrumento. */
+  dailyReturnPct: number | null;
 }
 
 export interface Portfolio {

@@ -85,6 +85,16 @@
                   "  pm.expect(body.availableCash).to.be.a('number');",
                   "  pm.expect(body.positions).to.be.an('array');",
                   "  pm.expect(body.totalAccountValue).to.be.a('number');",
+                  "});",
+                  "pm.test('cada posición trae rendimiento total y retorno diario', () => {",
+                  "  const { positions } = pm.response.json();",
+                  "  positions.forEach((p) => {",
+                  "    pm.expect(p.performancePct, p.ticker).to.be.a('number');",
+                  "    pm.expect(p, p.ticker).to.have.property('dailyReturnPct');",
+                  "    if (p.dailyReturnPct !== null) {",
+                  "      pm.expect(p.dailyReturnPct, p.ticker).to.be.a('number');",
+                  "    }",
+                  "  });",
                   "});"
                 ]
               }

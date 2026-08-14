@@ -27,9 +27,20 @@ export class PortfolioPositionResponseDto {
 
   @ApiProperty({
     example: 2.27,
-    description: '(marketValue − totalCost) / totalCost × 100',
+    description:
+      'Rendimiento total contra lo invertido: (marketValue − totalCost) / totalCost × 100',
   })
   performancePct: number;
+
+  @ApiProperty({
+    example: 4.65,
+    nullable: true,
+    type: Number,
+    description:
+      'Retorno diario: (close − previousClose) / previousClose × 100. ' +
+      'null si el instrumento no tiene cierre actual o anterior.',
+  })
+  dailyReturnPct: number | null;
 }
 
 export class PortfolioResponseDto {

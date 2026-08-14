@@ -139,6 +139,7 @@ describe('ValuationService', () => {
           quantity: '40',
           netCost: '37100.00',
           lastClose: '925.85',
+          previousClose: '900.00',
         },
       ]);
 
@@ -153,6 +154,85 @@ describe('ValuationService', () => {
       expect(position.performancePct).toBe(-0.18);
     });
 
+    it('calcula dailyReturnPct con close/previousClose, independiente del costo', async () => {
+      // El rendimiento total es negativo (se compró más caro que el cierre actual) y el
+      // retorno diario es positivo (el papel subió hoy): son métricas distintas y este
+      // caso lo deja explícito.
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 47,
+          ticker: 'PAMP',
+          name: 'Pampa Holding S.A.',
+          quantity: '40',
+          netCost: '37100.00',
+          lastClose: '925.85',
+          previousClose: '900.00',
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      // (925.85 - 900) / 900 * 100 = 2.8722...
+      expect(position.dailyReturnPct).toBe(2.87);
+      expect(position.performancePct).toBe(-0.18);
+    });
+
+    it('dailyReturnPct es negativo cuando el cierre bajó respecto del anterior', async () => {
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 1,
+          ticker: 'X',
+          name: 'X',
+          quantity: '10',
+          netCost: '1000.00',
+          lastClose: '90',
+          previousClose: '100',
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      expect(position.dailyReturnPct).toBe(-10);
+    });
+
+    it('dailyReturnPct es null si el instrumento no tiene previousClose', async () => {
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 1,
+          ticker: 'X',
+          name: 'X',
+          quantity: '10',
+          netCost: '1000.00',
+          lastClose: '100',
+          previousClose: null,
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      // null y no 0: sin cierre anterior el retorno es desconocido, y un 0 se leería
+      // como "no se movió".
+      expect(position.dailyReturnPct).toBeNull();
+    });
+
+    it('dailyReturnPct es null si previousClose es 0 (evita división por cero)', async () => {
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 1,
+          ticker: 'X',
+          name: 'X',
+          quantity: '10',
+          netCost: '1000.00',
+          lastClose: '100',
+          previousClose: '0',
+        },
+      ]);
+
+      const [position] = await service.getPositions(1);
+
+      expect(position.dailyReturnPct).toBeNull();
+    });
+
     it('performancePct es 0 cuando totalCost es <= 0 (evita división por cero)', async () => {
       queryFn.mockResolvedValue([
         {
@@ -162,6 +242,7 @@ describe('ValuationService', () => {
           quantity: '10',
           netCost: '0.00',
           lastClose: '100',
+          previousClose: '95',
         },
       ]);
 
@@ -179,6 +260,7 @@ describe('ValuationService', () => {
           quantity: '10',
           netCost: '1000.00',
           lastClose: null,
+          previousClose: '100',
         },
       ]);
 
@@ -186,6 +268,8 @@ describe('ValuationService', () => {
 
       expect(position.marketValue).toBe(0);
       expect(position.performancePct).toBe(-100);
+      // Sin cierre actual no hay retorno diario, aunque haya cierre anterior.
+      expect(position.dailyReturnPct).toBeNull();
     });
 
     it('devuelve [] si el usuario no tiene posiciones', async () => {
@@ -207,6 +291,7 @@ describe('ValuationService', () => {
           quantity: '100',
           netCost: '1990.00',
           lastClose: '19.90',
+          previousClose: '19.90',
         },
       ]);
 
@@ -229,6 +314,7 @@ describe('ValuationService', () => {
             quantity: '40',
             netCost: '37100.00',
             lastClose: '925.85',
+            previousClose: '900.00',
           },
         ]); // getPositions
 
