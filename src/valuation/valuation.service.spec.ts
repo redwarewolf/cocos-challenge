@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { PinoLogger } from 'nestjs-pino';
 import { EntityManager } from 'typeorm';
 import {
   Instrument,
@@ -18,6 +19,8 @@ describe('ValuationService', () => {
   const manager = { query: queryFn } as unknown as EntityManager;
   const orderRepository = { manager };
   const instrumentRepository = { findOne: jest.fn() };
+  const warn = jest.fn();
+  const logger = { setContext: jest.fn(), warn } as unknown as PinoLogger;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -30,6 +33,7 @@ describe('ValuationService', () => {
           provide: getRepositoryToken(Instrument),
           useValue: instrumentRepository,
         },
+        { provide: PinoLogger, useValue: logger },
       ],
     }).compile();
 
@@ -341,6 +345,51 @@ describe('ValuationService', () => {
       expect(position.lastPrice).toBeNull();
       // El costo sí se conoce: sale de las órdenes, no del mercado.
       expect(position.totalCost).toBe(1000);
+    });
+
+    it('descarta una tenencia neta negativa y la reporta como anomalía', async () => {
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 31,
+          ticker: 'BMA',
+          name: 'Banco Macro S.A.',
+          quantity: '-10',
+          buyAmount: '30800.00',
+          buySize: '20',
+          lastClose: '1502.80',
+          previousClose: '1520.25',
+          reservedQuantity: '0',
+        },
+      ]);
+
+      const positions = await service.getPositions(1);
+
+      expect(positions).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        { userId: 1, instrumentIds: [31] },
+        expect.stringContaining('negativa'),
+      );
+    });
+
+    it('un neto en cero se descarta sin avisar: es una posición cerrada, no una anomalía', async () => {
+      queryFn.mockResolvedValue([
+        {
+          instrumentId: 47,
+          ticker: 'PAMP',
+          name: 'Pampa Holding S.A.',
+          quantity: '0',
+          buyAmount: '46500.00',
+          buySize: '50',
+          lastClose: '925.85',
+          previousClose: '921.80',
+          reservedQuantity: '0',
+        },
+      ]);
+
+      const positions = await service.getPositions(1);
+
+      expect(positions).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
     });
 
     it('devuelve [] si el usuario no tiene posiciones', async () => {
