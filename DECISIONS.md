@@ -185,6 +185,30 @@ ellos — `lastPrice` se podría deducir de `marketValue / quantity` (con pérdi
   juntos, operar sobre `MONEDA`) responde `400`/`404` y no persiste nada. La distinción es entre "el
   mercado rechazó una orden válida" y "el request está mal formado".
 
+### Los límites de las columnas se validan en el borde
+
+Un `size` que no entra en `INT`, un `price` que excede `NUMERIC(10, 2)` o una `Idempotency-Key` de
+más de 255 caracteres son inputs inválidos, pero sin validación explícita llegaban a Postgres, que
+los rechaza con `22003`/`22001`. TypeORM eso lo envuelve en un `QueryFailedError` que, sin nadie que
+lo atrape, sale como `500`: le dice al cliente "el server se rompió" cuando el problema es del
+request, y ensucia cualquier alerta por tasa de 5xx.
+
+Los techos viven en `src/database/column-limits.ts`, nombrados por lo que acotan y no por el tipo
+SQL, y los consumen los DTOs. Un caso no lo puede expresar un DTO: el `size` que sale de
+`floor(amount / price)` puede desbordar aunque `amount` sea válido, porque lo que desborda es el
+cociente — ese guard va en `OrderPricingService.resolveSize`, que es donde el número existe.
+
+Detrás queda `QueryFailedFilter`, que mapea los SQLSTATE que un cliente puede provocar (`22001`,
+`22003`, `23503`, `23514` a `400`; `23505` a `409`) y deja pasar el resto como `500`, porque lo que
+no está en esa lista es un bug del server. El mensaje de Postgres se loguea pero nunca se responde:
+nombra columnas y, en las violaciones de unicidad, valores de otras filas.
+
+Es defensa en profundidad, no la validación principal — hoy ningún request llega al filter, porque
+los DTOs los frenan antes. Existe para que el próximo campo que alguien agregue sin `@Max` falle
+como `400` y no como `500`. Va registrado con `APP_FILTER` en vez de `useGlobalFilters` en `main.ts`
+para que lo alcance la inyección de dependencias y para que aplique también en los e2e, que levantan
+la app sin pasar por `bootstrap()`.
+
 ---
 
 ## 6. Idempotencia

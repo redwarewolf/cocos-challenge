@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { EntityManager } from 'typeorm';
+import { MAX_ORDER_SIZE } from '../database/column-limits';
 import { ValuationService } from '../valuation/valuation.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import {
@@ -48,6 +49,13 @@ export class OrderPricingService {
       return dto.size;
     }
     const size = new Decimal(dto.amount!).dividedBy(price).floor().toNumber();
+    // El techo de `amount` no alcanza para acotar esto: con un precio suficientemente bajo,
+    // un monto válido da un size que no entra en `orders.size`.
+    if (size > MAX_ORDER_SIZE) {
+      throw new BadRequestException(
+        `"amount" resolves to more than ${MAX_ORDER_SIZE} shares at the current price`,
+      );
+    }
     if (size < 1) {
       // Mensaje neutro respecto del lado de la operación: resolveSize es común a BUY y
       // SELL, así que hablar de "comprar" le daría a un SELL por monto un error que

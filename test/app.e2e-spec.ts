@@ -433,6 +433,81 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
   });
 
+  describe('POST /orders — inputs fuera del rango de las columnas', () => {
+    // Los tres casos llegaban a Postgres y volvían como 500: el insert ocurre aunque la
+    // orden vaya a quedar REJECTED, así que ni siquiera hace falta tener fondos.
+    it('400 si size no entra en orders.size (INT)', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId: 1,
+        instrumentId: 2,
+        side: 'BUY',
+        type: 'MARKET',
+        size: 3_000_000_000,
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si price no entra en orders.price NUMERIC(10,2)', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId: 1,
+        instrumentId: 2,
+        side: 'BUY',
+        type: 'LIMIT',
+        size: 1,
+        price: 1_000_000_000,
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si el size derivado de amount no entra en INT', async () => {
+      // El techo de `amount` no alcanza: lo que desborda es el cociente contra el precio.
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId: 1,
+        instrumentId: 2,
+        side: 'BUY',
+        type: 'LIMIT',
+        amount: 99_999_999.99,
+        price: 0.01,
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si la Idempotency-Key excede los 255 caracteres de la columna', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/v1/orders')
+        .set('Idempotency-Key', 'a'.repeat(256))
+        .send({
+          userId: 1,
+          instrumentId: 2,
+          side: 'BUY',
+          type: 'MARKET',
+          size: 1,
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si la Idempotency-Key trae caracteres de control', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/v1/orders/cash')
+        .set('Idempotency-Key', 'retry\t1')
+        .send({ userId: 1, side: 'CASH_IN', amount: 100 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si el amount de un movimiento de cash no entra en orders.size', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/v1/orders/cash')
+        .send({ userId: 1, side: 'CASH_IN', amount: 3_000_000_000 });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe('POST /orders y PATCH /orders/:id/cancel — flujo completo', () => {
     // Los `it` de este bloque corren en secuencia a propósito: comprar, vender y cancelar
     // encadenados son el flujo bajo prueba, no un accidente.

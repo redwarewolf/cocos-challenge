@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   Param,
   ParseIntPipe,
   Patch,
@@ -20,6 +19,7 @@ import {
   Paginated,
   PaginatedResponseDto,
 } from '../common/dto/paginated-response.dto';
+import { IdempotencyKey } from './idempotency-key.decorator';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
@@ -51,7 +51,7 @@ export class OrdersController {
   })
   create(
     @Body() dto: CreateOrderDto,
-    @Headers('idempotency-key') idempotencyKey?: string,
+    @IdempotencyKey() idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
     return this.ordersService.create(dto, idempotencyKey);
   }
@@ -76,7 +76,7 @@ export class OrdersController {
   @ApiResponse({ status: 404, description: 'Usuario inexistente' })
   createCashMovement(
     @Body() dto: CreateCashMovementDto,
-    @Headers('idempotency-key') idempotencyKey?: string,
+    @IdempotencyKey() idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
     return this.ordersService.createCashMovement(dto, idempotencyKey);
   }

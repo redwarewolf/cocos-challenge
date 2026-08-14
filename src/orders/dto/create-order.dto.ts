@@ -5,7 +5,9 @@ import {
   IsNumber,
   IsOptional,
   IsPositive,
+  Max,
 } from 'class-validator';
+import { MAX_ORDER_PRICE, MAX_ORDER_SIZE } from '../../database/column-limits';
 import { OrderSide, OrderType } from '../../database/entities/order.entity';
 
 export class CreateOrderDto {
@@ -40,6 +42,7 @@ export class CreateOrderDto {
   @IsOptional()
   @IsInt()
   @IsPositive()
+  @Max(MAX_ORDER_SIZE)
   size?: number;
 
   @ApiProperty({
@@ -51,6 +54,7 @@ export class CreateOrderDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
+  @Max(MAX_ORDER_PRICE)
   amount?: number;
 
   @ApiProperty({
@@ -62,5 +66,6 @@ export class CreateOrderDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
+  @Max(MAX_ORDER_PRICE)
   price?: number;
 }

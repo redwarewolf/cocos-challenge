@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsInt, IsPositive } from 'class-validator';
+import { IsIn, IsInt, IsPositive, Max } from 'class-validator';
+import { MAX_ORDER_SIZE } from '../../database/column-limits';
 import { OrderSide } from '../../database/entities/order.entity';
 
 export class CreateCashMovementDto {
@@ -15,8 +16,10 @@ export class CreateCashMovementDto {
   @IsIn([OrderSide.CASH_IN, OrderSide.CASH_OUT])
   side: OrderSide.CASH_IN | OrderSide.CASH_OUT;
 
+  // Se persiste como `orders.size`, así que hereda su techo.
   @ApiProperty({ example: 50000, description: 'Monto en pesos, entero.' })
   @IsInt()
   @IsPositive()
+  @Max(MAX_ORDER_SIZE)
   amount: number;
 }

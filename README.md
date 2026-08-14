@@ -129,7 +129,9 @@ acciones enteras que ese monto permite comprar al precio resuelto). Para `LIMIT`
 enviar `"price"`; para `MARKET` se ignora y se usa el último `close`.
 
 Si no alcanza el disponible, la orden se persiste igual con `status: REJECTED` y responde `201`.
-Un request mal formado responde `400`/`404` y no persiste nada.
+Un request mal formado responde `400`/`404` y no persiste nada — incluidos los valores que exceden
+lo que la columna puede guardar (`size` fuera de `INT`, `price` fuera de `NUMERIC(10,2)`), que se
+rechazan antes de llegar a la base en vez de volver como un `500`.
 
 ### `POST /v1/orders/cash`
 
@@ -157,7 +159,8 @@ Cancela una orden en estado `NEW`. Cualquier otro estado responde `400`.
 cliente reintenta el mismo request mandando la misma key —por ejemplo tras un timeout de red sin
 haber recibido la respuesta original— la API devuelve la orden ya creada en vez de duplicarla,
 incluso si dos requests con la misma key llegan casi al mismo tiempo. Sin el header, cada request
-crea una orden nueva. La key es única **por usuario**.
+crea una orden nueva. La key es única **por usuario**, y su formato es `[A-Za-z0-9_.:-]{1,255}` —
+un UUID entra, y también un `retry-1`.
 
 En `postman/` hay una colección completa de ejemplos ejecutables, con test scripts.
 
