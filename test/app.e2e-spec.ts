@@ -443,6 +443,18 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(res.status).toBe(400);
     });
 
+    it('400 si el side es CASH_IN/CASH_OUT (van por POST /orders/cash)', async () => {
+      const res = await request(app.getHttpServer()).post('/v1/orders').send({
+        userId: 1,
+        instrumentId: 2,
+        side: 'CASH_IN',
+        type: 'MARKET',
+        size: 1,
+      });
+
+      expect(res.status).toBe(400);
+    });
+
     it('400 al operar sobre el instrumento MONEDA', async () => {
       const res = await request(app.getHttpServer()).post('/v1/orders').send({
         userId: 1,

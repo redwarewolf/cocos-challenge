@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -26,8 +27,10 @@ export class CreateOrderDto {
     description:
       'Solo BUY/SELL: CASH_IN/CASH_OUT no se exponen por este endpoint (ver POST /orders/cash).',
   })
-  @IsEnum(OrderSide)
-  side: OrderSide;
+  @IsIn([OrderSide.BUY, OrderSide.SELL], {
+    message: 'side must be BUY or SELL for this endpoint',
+  })
+  side: OrderSide.BUY | OrderSide.SELL;
 
   @ApiProperty({ enum: OrderType })
   @IsEnum(OrderType)

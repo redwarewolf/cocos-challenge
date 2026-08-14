@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 import { buildDataSourceOptions } from './database/data-source';
@@ -12,7 +11,6 @@ import { PortfolioModule } from './portfolio/portfolio.module';
 @Module({
   imports: [
     LoggerModule.forRoot(buildLoggerOptions()),
-    ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({ useFactory: buildDataSourceOptions }),
     HealthModule,
     PortfolioModule,

@@ -338,6 +338,15 @@ pisan `DATABASE_URL`/`DB_SSL` en runtime antes de bootear la app. Por la misma r
 no exporta un objeto de opciones ya resuelto. No se usa `ConfigService` porque el CLI de migraciones
 importa este mismo archivo y corre fuera del contenedor de DI de Nest.
 
+**Apagado ordenado**: `enableShutdownHooks()`. Ante un `SIGTERM` —un deploy, un `docker stop`— Nest
+deja de aceptar conexiones, espera a que terminen los requests en vuelo y recién ahí cierra el pool.
+Sin eso, una orden en curso muere sin respuesta y el cliente no sabe si se ejecutó; con el header
+`Idempotency-Key` puede reintentar sin duplicarla.
+
+**Swagger solo fuera de producción**: `/docs` y `/docs-json` describen toda la superficie de la API,
+que es información gratuita para quien busca por dónde entrar. En desarrollo el valor de tenerlos
+supera al riesgo; en producción no.
+
 **TLS contra la base**: `ssl: true`, no `{ rejectUnauthorized: false }`. Desactivar la verificación
 del certificado cifra la conexión pero no valida contra quién, que es la mitad del punto de TLS. Neon
 emite certificados de una CA pública, así que la verificación completa funciona sin configuración

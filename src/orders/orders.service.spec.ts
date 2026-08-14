@@ -97,18 +97,6 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
   });
 
   describe('create', () => {
-    it('rechaza (400) side distinto de BUY/SELL (ej. CASH_IN)', async () => {
-      await expect(
-        service.create({
-          userId: 1,
-          instrumentId: 66,
-          side: OrderSide.CASH_IN,
-          type: OrderType.MARKET,
-          size: 10,
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
     it('rechaza (400) si se envían "size" y "amount" juntos', async () => {
       await expect(
         service.create({
