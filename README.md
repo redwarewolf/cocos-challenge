@@ -151,7 +151,8 @@ base directamente (en el seed original solo el usuario 1 tiene cash).
 { "userId": 2, "side": "CASH_IN", "amount": 50000 }
 ```
 
-`CASH_IN` siempre se llena; `CASH_OUT` queda `REJECTED` si no hay disponible suficiente.
+`CASH_IN` siempre se llena; `CASH_OUT` queda `REJECTED` si supera el poder de compra — retirar pesos
+ya comprometidos en una compra pendiente dejaría la cuenta en descubierto al ejecutarse esa compra.
 
 ### `GET /v1/orders?userId=&status=&page=&limit=`
 
@@ -182,12 +183,12 @@ npm run test:e2e   # e2e contra un Postgres real descartable (requiere Docker)
 npm run test:postman  # colección Postman con Newman (requiere el server corriendo)
 ```
 
-**Unit** (122 tests): un spec por servicio y por controller, con repositorios y servicios mockeados
+**Unit** (145 tests): un spec por servicio y por controller, con repositorios y servicios mockeados
 en memoria. Los tests de controller verifican la delegación; la lógica de negocio se prueba en los
 services. La cobertura se mide solo sobre services y controllers —los archivos declarativos
 (módulos, entities, DTOs, migraciones) están excluidos a propósito— y está en 100% de statements.
 
-**E2E** (52 tests): levantan un Postgres real y descartable con
+**E2E** (70 tests): levantan un Postgres real y descartable con
 [Testcontainers](https://node.testcontainers.org/), le corren **las migraciones reales del proyecto**
 y un seed de test propio, y ejercitan la app de punta a punta (HTTP → controller → service → DB),
 incluidos los tres escenarios de concurrencia. Nunca tocan la base de Cocos: el container se crea y
@@ -219,6 +220,7 @@ src/
     migrations/            # única fuente de verdad del esquema
     data-source.ts         # DataSource compartido (Nest + CLI de migraciones)
     advisory-lock.ts       # primitivo de lock por key, genérico
+    column-limits.ts       # techos de las columnas, para validarlos en el borde
   valuation/               # cash disponible + posiciones (compartido)
   portfolio/               # GET /portfolio/:userId
   instruments/             # GET /instruments/search
@@ -226,6 +228,7 @@ src/
     orders.service.ts          # orquestación: valida y delega
     order-pricing.service.ts   # reglas de precio/size/status de BUY/SELL
     idempotent-order-writer.ts # idempotencia + guardado bajo el advisory lock
+    idempotency-key.decorator.ts # lee y valida el header Idempotency-Key
   health/                  # GET /health
 test/
   app.e2e-spec.ts          # e2e contra Postgres real (Testcontainers)
@@ -233,7 +236,8 @@ test/
 postman/                   # colección + test scripts
 ```
 
-Cada archivo de `src/` tiene su `.spec.ts` al lado.
+Cada archivo con lógica tiene su `.spec.ts` al lado. Los declarativos —módulos, entities, DTOs,
+tipos y constantes— no lo tienen, y por eso están fuera de la medición de cobertura.
 
 ## Documentación
 

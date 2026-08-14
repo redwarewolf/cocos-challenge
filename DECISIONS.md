@@ -399,10 +399,9 @@ tabla, actualizada en la misma transacción que inserta la orden, o un snapshot 
 Los índices actuales alcanzan holgadamente para este volumen.
 
 **No hay autenticación**, y por eso `PATCH /orders/:id/cancel` no valida que la orden sea del
-usuario. Se evaluó agregar un `userId` al request y se descartó: sin autenticación, un identificador
-que manda el propio cliente no es una autorización sino su apariencia — se le pregunta "¿quién sos?"
-justamente a quien se quiere controlar. La identidad debería viajar en un token, no en un parámetro,
-y la validación de pertenencia corresponde hacerla junto con la autenticación.
+usuario. Un `userId` en el request tampoco lo resolvería: un identificador que manda el propio
+cliente no es una autorización sino su apariencia. La pertenencia se valida junto con la identidad, y
+la identidad viaja en un token.
 
 **Misma `Idempotency-Key` con body distinto** devuelve la orden original en silencio. Lo canónico es
 guardar un hash del request junto con la key y responder `409 Conflict` ante un mismatch.
