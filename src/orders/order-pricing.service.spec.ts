@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EntityManager } from 'typeorm';
+import { MAX_ORDER_PRICE, MAX_ORDER_SIZE } from '../database/column-limits';
 import {
   OrderSide,
   OrderStatus,
@@ -94,6 +95,21 @@ describe('OrderPricingService', () => {
           900,
         ),
       ).toThrow(/^(?!.*\bbuy\b).*amount.*$/i);
+    });
+
+    it('400 si el size derivado del amount no entra en orders.size (INT)', () => {
+      // El @Max del DTO acota `amount`, no el size que sale de dividirlo: con un precio
+      // suficientemente bajo, un monto válido produce un size que Postgres rechaza con
+      // 22003. Sin este guard, un request válido en forma termina en 500.
+      expect(() =>
+        service.resolveSize({ amount: MAX_ORDER_PRICE } as never, 0.01),
+      ).toThrow(BadRequestException);
+    });
+
+    it('acepta el size máximo exacto', () => {
+      expect(service.resolveSize({ amount: MAX_ORDER_SIZE } as never, 1)).toBe(
+        MAX_ORDER_SIZE,
+      );
     });
   });
 

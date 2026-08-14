@@ -185,6 +185,18 @@ ellos — `lastPrice` se podría deducir de `marketValue / quantity` (con pérdi
   juntos, operar sobre `MONEDA`) responde `400`/`404` y no persiste nada. La distinción es entre "el
   mercado rechazó una orden válida" y "el request está mal formado".
 
+### Los límites de las columnas se validan en el borde
+
+`orders.size` es `INT`, `orders.price` es `NUMERIC(10, 2)` e `idempotencykey` es `VARCHAR(255)`.
+Un valor que excede cualquiera de los tres es un input inválido, y tiene que responder `400` desde
+la validación del request: si llega a Postgres, el `QueryFailedError` que devuelve sale como `500` y
+le dice al cliente que el server se rompió cuando el problema es suyo.
+
+Los techos viven en `src/database/column-limits.ts`, nombrados por lo que acotan y no por el tipo
+SQL, y los consumen los DTOs. Un caso no lo puede expresar un DTO: el `size` que sale de
+`floor(amount / price)` puede desbordar aunque `amount` sea válido, porque lo que desborda es el
+cociente — ese guard va en `OrderPricingService.resolveSize`, que es donde el número existe.
+
 ---
 
 ## 6. Idempotencia
