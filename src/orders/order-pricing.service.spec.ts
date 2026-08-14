@@ -79,10 +79,21 @@ describe('OrderPricingService', () => {
       expect(service.resolveSize({ amount: 5000 } as never, 900)).toBe(5);
     });
 
-    it('400 si el amount no alcanza para comprar ni una acción', () => {
+    it('400 si el amount no alcanza ni para una acción', () => {
       expect(() => service.resolveSize({ amount: 100 } as never, 900)).toThrow(
         BadRequestException,
       );
+    });
+
+    it('el mensaje de error no habla de comprar: resolveSize es común a BUY y SELL', () => {
+      // Un SELL por monto insuficiente recibía "not enough to buy at least one share",
+      // que describe la operación contraria a la que el cliente pidió.
+      expect(() =>
+        service.resolveSize(
+          { side: OrderSide.SELL, amount: 100 } as never,
+          900,
+        ),
+      ).toThrow(/^(?!.*\bbuy\b).*amount.*$/i);
     });
   });
 

@@ -18,7 +18,11 @@ export function buildDataSourceOptions(): DataSourceOptions {
   return {
     type: 'postgres',
     url: config.databaseUrl,
-    ssl: config.dbSsl ? { rejectUnauthorized: false } : false,
+    // `true` y no `{ rejectUnauthorized: false }`: esto último cifra la conexión pero no
+    // verifica contra quién, que es la mitad del punto de TLS. Neon emite certificados de
+    // una CA pública, así que la verificación completa funciona sin configuración extra.
+    // En local/Testcontainers `DB_SSL=false` y no hay TLS.
+    ssl: config.dbSsl,
     entities: [User, Instrument, Order, MarketData],
     migrations: [__dirname + '/migrations/*.{ts,js}'],
     // La DB ya existe con datos reales; TypeORM no debe auto-crear/alterar tablas nunca.
@@ -28,6 +32,9 @@ export function buildDataSourceOptions(): DataSourceOptions {
   };
 }
 
-export const dataSourceOptions: DataSourceOptions = buildDataSourceOptions();
-
-export const AppDataSource = new DataSource(dataSourceOptions);
+/**
+ * Solo lo usa el CLI de TypeORM (`npm run migration:run`/`migration:revert`), que necesita
+ * un DataSource exportado. La app y los e2e llaman a la factory por su cuenta
+ * (`AppModule` vía `useFactory`, `test/setup/test-database.ts`).
+ */
+export const AppDataSource = new DataSource(buildDataSourceOptions());

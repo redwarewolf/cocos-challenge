@@ -49,8 +49,11 @@ export class OrderPricingService {
     }
     const size = new Decimal(dto.amount!).dividedBy(price).floor().toNumber();
     if (size < 1) {
+      // Mensaje neutro respecto del lado de la operación: resolveSize es común a BUY y
+      // SELL, así que hablar de "comprar" dejaba a un SELL por monto con un error que
+      // describe otra operación.
       throw new BadRequestException(
-        '"amount" is not enough to buy at least one share at the current price',
+        '"amount" is not enough for at least one share at the current price',
       );
     }
     return size;

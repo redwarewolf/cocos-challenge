@@ -31,17 +31,25 @@ export class InstrumentsService {
       return { data: [], total: 0, page, limit };
     }
 
+    // `%` y `_` son wildcards de LIKE, así que hay que escaparlos antes de interpolarlos
+    // en el patrón. No es un tema de inyección (la query va parametrizada), es de
+    // resultados: sin esto, buscar `GG_L` matchea `GGAL` y buscar `%` devuelve el listado
+    // entero. El `\` va primero en la clase de caracteres para que se escape a sí mismo.
+    const escaped = term.replace(/[\\%_]/g, '\\$&');
+
     const [data, total] = await this.instrumentRepository
       .createQueryBuilder('instrument')
       .where('instrument.type != :moneda', { moneda: InstrumentType.MONEDA })
       .andWhere(
         '(instrument.ticker ILIKE :like OR instrument.name ILIKE :like)',
         {
-          like: `%${term}%`,
+          like: `%${escaped}%`,
         },
       )
-      .setParameter('exact', term)
-      .setParameter('prefix', `${term}%`)
+      // Los patrones del ranking también son ILIKE: sin escapar, un `GG_L` se ordenaría
+      // como si fuera match exacto de `GGAL`.
+      .setParameter('exact', escaped)
+      .setParameter('prefix', `${escaped}%`)
       .orderBy(
         `CASE
           WHEN instrument.ticker ILIKE :exact THEN 0

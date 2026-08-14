@@ -354,6 +354,12 @@ que introducir. Todo lo que sale de la API se redondea explícitamente a 2 decim
 luego el resto (contiene en ticker o nombre), para que buscar `"ggal"` devuelva primero el ticker
 exacto antes que coincidencias parciales en nombres.
 
+Los wildcards de `LIKE` (`%`, `_`) del término se escapan antes de armar el patrón. No es un tema de
+inyección —la query va parametrizada— sino de resultados: sin escapar, buscar `GG_L` devuelve `GGAL`
+(el `_` matchea cualquier carácter) y buscar `%` devuelve el listado entero. Se escapan los tres
+patrones, incluidos los del ranking (`exact`/`prefix` también son `ILIKE`), o un `GG_L` se ordenaría
+como si fuera match exacto de `GGAL`.
+
 **Paginación**: offset-based (`page`/`limit`, `getManyAndCount()`/`findAndCount()`), no por cursor —
 para el volumen de un mercado real (miles de instrumentos u órdenes, no millones) alcanza y es más
 simple de consumir. El envelope `{ data, total, page, limit }` y el
@@ -386,6 +392,19 @@ las importe primero). No se usa `ConfigService` de `@nestjs/config` (aunque est�
 migraciones (`migration:run`/`migration:revert`), que corre completamente fuera del contenedor de
 DI de Nest — un `ConfigService` inyectable no serviría ahí. `PAGE_SIZE` sí se resuelve una sola vez
 al importar el módulo, porque a diferencia de `DATABASE_URL` ningún test lo pisa en runtime.
+
+Esa misma laziness es la razón por la que `data-source.ts` **no** exporta un objeto de opciones ya
+resuelto: exportar una constante calculada al importar llamaría a `getConfig()` en tiempo de import y
+anularía la propiedad que la factory existe para preservar. Los dos consumidores reales llaman a
+`buildDataSourceOptions()` por su cuenta (`AppModule` vía `useFactory`, `test/setup/test-database.ts`),
+y el único `DataSource` construido en el módulo es el que necesita el CLI de migraciones, que no tiene
+otra forma de recibirlo.
+
+**TLS contra la base**: `ssl: true`, no `{ rejectUnauthorized: false }`. Desactivar la verificación
+del certificado cifra la conexión pero no valida contra quién, que es la mitad del punto de TLS —
+es el atajo habitual para bases gestionadas y no hace falta: Neon emite certificados de una CA
+pública, así que la verificación completa funciona sin configuración extra. Con `DB_SSL=false`
+(local, Testcontainers) no hay TLS y no aplica.
 
 **Logging estructurado y correlation id** (issue #9): reemplaza el logger default de Nest (texto
 plano) por `nestjs-pino` — logs en JSON, listos para ingestar por cualquier herramienta de
@@ -491,7 +510,9 @@ ningún Postgres, solo la API (lee `DATABASE_URL` de `.env` vía `env_file`). El
 multi-stage: una etapa `build` con las devDependencies para compilar (`nest build`), y una
 etapa `runtime` liviana que solo instala dependencias de producción (`npm ci --omit=dev`) y
 copia el `dist/` ya compilado — la imagen final no incluye el código TypeScript ni el toolchain
-de build.
+de build. El proceso corre con `USER node` (usuario sin privilegios que ya trae la imagen oficial):
+por default un contenedor corre como root, y ahí cualquier vulnerabilidad de la app tendría permisos
+de root sobre el filesystem de la imagen.
 
 **Versionado de rutas** (issue #34): todas las rutas quedan bajo `/v1/...`
 (`app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' })` en `main.ts`), salvo

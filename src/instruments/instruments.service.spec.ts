@@ -94,6 +94,38 @@ describe('InstrumentsService', () => {
     );
   });
 
+  it('escapa los wildcards de LIKE en el patrón de búsqueda', async () => {
+    // Sin escapar, `_` matchea cualquier carácter: buscar GG_L devolvería GGAL.
+    await service.search('GG_L', 1, 20);
+
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(expect.any(String), {
+      like: '%GG\\_L%',
+    });
+  });
+
+  it('escapa el % para que no devuelva el listado entero', async () => {
+    await service.search('%', 1, 20);
+
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(expect.any(String), {
+      like: '%\\%%',
+    });
+  });
+
+  it('escapa la propia barra invertida', async () => {
+    await service.search('a\\b', 1, 20);
+
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(expect.any(String), {
+      like: '%a\\\\b%',
+    });
+  });
+
+  it('escapa también los patrones del ranking (exact/prefix son ILIKE igual)', async () => {
+    await service.search('GG_L', 1, 20);
+
+    expect(queryBuilder.setParameter).toHaveBeenCalledWith('exact', 'GG\\_L');
+    expect(queryBuilder.setParameter).toHaveBeenCalledWith('prefix', 'GG\\_L%');
+  });
+
   it('calcula skip/take a partir de page/limit (offset-based)', async () => {
     await service.search('a', 3, 10);
 

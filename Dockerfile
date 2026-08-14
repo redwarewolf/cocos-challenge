@@ -15,5 +15,10 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 
+# Sin esto el proceso corre como root dentro del contenedor: una vulnerabilidad en la app
+# tendría permisos de root sobre el filesystem de la imagen. `node` ya viene en la imagen
+# oficial, no hace falta crearlo.
+USER node
+
 EXPOSE 3000
 CMD ["node", "dist/main"]
