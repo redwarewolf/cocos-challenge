@@ -9,8 +9,6 @@ import {
   OrderType,
 } from '../database/entities/order.entity';
 
-/** Datos de una orden/movimiento a punto de persistirse, sin `idempotencyKey` todavía
- * (la agrega `IdempotentOrderWriter` internamente). */
 export interface OrderData {
   userId: number;
   instrumentId: number;
@@ -22,10 +20,8 @@ export interface OrderData {
 }
 
 /**
- * Persiste una orden/movimiento de forma idempotente y protegida por el advisory lock del
- * usuario. No sabe nada de BUY/SELL/CASH_IN/CASH_OUT: recibe una función `computeData` que calcula
- * los campos de la orden (bajo el lock, con acceso al `manager` transaccional) y se encarga
- * de la idempotencia y la concurrencia alrededor de eso.
+ * Persiste una orden de forma idempotente y serializada por usuario. No sabe qué tipo de orden
+ * persiste: recibe una `computeData` que calcula los campos bajo el lock.
  */
 @Injectable()
 export class IdempotentOrderWriter {
@@ -36,14 +32,11 @@ export class IdempotentOrderWriter {
   ) {}
 
   /**
-   * Si viene `idempotencyKey`, se busca primero una orden ya guardada de *ese usuario* con
-   * esa key — caso común, el cliente reintentó un POST después de un timeout sin haber
-   * recibido la respuesta original. El filtro por `userId` no es decorativo: la key la elige
-   * el cliente, así que dos usuarios pueden mandar la misma y buscar solo por key devolvería
-   * la orden ajena. Si existe, se devuelve directamente, sin tomar el lock ni volver a
-   * calcular nada. Si no existe, se ejecuta `computeData` bajo el advisory lock de siempre
-   * (ver `saveOrder` para cómo se resuelve la carrera rara de dos requests con la misma key
-   * llegando casi al mismo tiempo).
+   * Upsert de una orden para un usuario: si ya existe una con esa `idempotencyKey` la devuelve, y
+   * si no la calcula con `computeData` y la inserta, serializado por el advisory lock del usuario.
+   *
+   * La búsqueda corre dos veces, antes y dentro del lock: el lock se libera al commitear, así que
+   * una orden que se está escribiendo en paralelo recién es visible adentro.
    */
   async write(
     idempotencyKey: string | undefined,
@@ -51,15 +44,30 @@ export class IdempotentOrderWriter {
     computeData: (manager: EntityManager) => Promise<OrderData>,
   ): Promise<Order> {
     if (idempotencyKey) {
-      const existing = await this.orderRepository.findOne({
-        where: { userId, idempotencyKey },
-      });
+      const existing = await this.findByKey(
+        this.orderRepository,
+        userId,
+        idempotencyKey,
+      );
       if (existing) {
         return existing;
       }
     }
 
     return this.advisoryLock.withLock(userId, async (manager) => {
+      const orderRepo = manager.getRepository(Order);
+
+      if (idempotencyKey) {
+        const existing = await this.findByKey(
+          orderRepo,
+          userId,
+          idempotencyKey,
+        );
+        if (existing) {
+          return existing;
+        }
+      }
+
       const data = await computeData(manager);
       return this.saveOrder(manager, {
         ...data,
@@ -68,17 +76,19 @@ export class IdempotentOrderWriter {
     });
   }
 
+  private findByKey(
+    repo: Repository<Order>,
+    userId: number,
+    idempotencyKey: string,
+  ): Promise<Order | null> {
+    return repo.findOne({ where: { userId, idempotencyKey } });
+  }
+
   /**
-   * Sin `idempotencyKey`, un `save()` normal alcanza (nunca puede chocar contra la
-   * constraint UNIQUE, que ignora los `NULL`). Con `idempotencyKey`, se inserta con
-   * `ON CONFLICT DO NOTHING` (vía `.orIgnore()`) en vez de un `INSERT` liso: si dos
-   * requests con la misma key llegan casi al mismo tiempo, la que pierde la carrera no
-   * falla, simplemente no inserta nada. En ambos casos —ganamos o perdimos la carrera— la
-   * fila de ese usuario con esa key ya existe en la DB después del insert, así que un
-   * `findOne` la resuelve sin necesidad de inspeccionar códigos de error.
-   *
-   * `.orIgnore()` genera un `ON CONFLICT DO NOTHING` sin target, así que sigue funcionando
-   * igual contra la constraint compuesta `(userid, idempotencykey)`.
+   * Con key, `.orIgnore()` genera un `ON CONFLICT DO NOTHING` sin target, que por eso cubre la
+   * constraint compuesta `(userid, idempotencykey)`: el que pierde la carrera no falla, no
+   * inserta, y relee la fila del que ganó. Sin key alcanza un `save()`, porque la UNIQUE
+   * ignora los `NULL`.
    */
   private async saveOrder(
     manager: EntityManager,
@@ -99,9 +109,11 @@ export class IdempotentOrderWriter {
       .orIgnore()
       .execute();
 
-    const order = await orderRepo.findOne({
-      where: { userId: data.userId, idempotencyKey: data.idempotencyKey },
-    });
+    const order = await this.findByKey(
+      orderRepo,
+      data.userId,
+      data.idempotencyKey,
+    );
     if (!order) {
       throw new Error(
         `No se pudo crear ni encontrar la orden con Idempotency-Key ${data.idempotencyKey}`,

@@ -210,15 +210,26 @@ requests sin key no se ven afectados.
 también un `retry-1`—, así que dos cuentas pueden mandar la misma. Con una constraint global, el
 segundo usuario recibía la orden del primero, con `userId`, instrumento, size y precio ajenos.
 
-Si viene la key, se busca primero una orden **de ese usuario** con ese valor: es el caso común, el
-cliente reintentó tras un timeout sin haber recibido la respuesta original. Si existe se devuelve
-directamente, sin recalcular ni tomar el lock.
+### La orden se busca dos veces, y las dos hacen falta
 
-El caso raro —dos requests con la misma key casi simultáneos— se resuelve a nivel SQL y no con una
-excepción: el insert usa `ON CONFLICT DO NOTHING` en vez de un `INSERT` liso, así que el que pierde
-la carrera no falla, simplemente no inserta. Como después del insert la fila ya existe —la haya
-creado uno u otro— un `findOne` posterior la resuelve, sin inspeccionar códigos `SQLSTATE` del
-driver.
+Si viene la key, se busca una orden **de ese usuario** con ese valor antes de tomar el advisory
+lock. Eso resuelve el caso común —el cliente reintentó tras un timeout sin haber recibido la
+respuesta original— con un solo `SELECT`, sin encolarse detrás del lock del usuario.
+
+La segunda búsqueda va **adentro** del lock, y es la que da la garantía. Si el request original
+todavía está en vuelo, la primera no lo ve; pero el advisory lock se libera recién al commitear, así
+que cuando el reintento entra, la fila del original ya es visible. Sin esa segunda búsqueda se
+volvería a ejecutar el cálculo de la orden, que puede fallar por motivos que no tienen nada que ver
+con el reintento: si entre los dos requests el precio se movió, un `amount` que antes alcanzaba para
+una acción ya no alcanza, y el cliente recibe un `400` por una orden que existe y quedó `FILLED`.
+
+Dicho de otra forma: la idempotencia no puede depender de que recalcular sea siempre posible.
+
+El caso raro —dos requests con la misma key llegando tan cerca que ni el segundo lookup los
+separa— se resuelve a nivel SQL y no con una excepción: el insert usa `ON CONFLICT DO NOTHING` en
+vez de un `INSERT` liso, así que el que pierde la carrera no falla, simplemente no inserta. Como
+después del insert la fila ya existe —la haya creado uno u otro— un `findOne` posterior la resuelve,
+sin inspeccionar códigos `SQLSTATE` del driver.
 
 ---
 
