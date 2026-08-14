@@ -279,6 +279,20 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
   });
 
+  describe('Unicidad del cierre diario', () => {
+    it('la base rechaza dos cierres del mismo instrumento para el mismo día', async () => {
+      // GGAL (id 2) ya tiene una fila del 2024-01-02 en el seed. Sin esta constraint, cuál
+      // de las dos es "el último precio" queda indefinido: una orden podría ejecutarse
+      // contra una y el portfolio valuarse contra la otra.
+      await expect(
+        dataSource.query(
+          `INSERT INTO marketdata (instrumentId, "date", "open", high, low, "close", previousclose)
+           VALUES (2, '2024-01-02', 800, 999, 795, 999, 800)`,
+        ),
+      ).rejects.toThrow();
+    });
+  });
+
   describe('Posición sobre un instrumento sin marketdata', () => {
     let userId: number;
 

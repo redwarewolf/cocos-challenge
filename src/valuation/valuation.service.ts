@@ -134,11 +134,6 @@ export class ValuationService {
         INNER JOIN instruments i ON i.id = o.instrumentid
         WHERE o.userid = $1 AND o.status = 'FILLED' AND o.side IN ('BUY', 'SELL') AND i.type <> 'MONEDA'
         GROUP BY o.instrumentid
-      ),
-      latest_price AS (
-        SELECT DISTINCT ON (instrumentid) instrumentid, close, previousclose
-        FROM marketdata
-        ORDER BY instrumentid, date DESC
       )
       SELECT
         po.instrumentid AS "instrumentId",
@@ -151,7 +146,16 @@ export class ValuationService {
         lp.previousclose AS "previousClose"
       FROM position_orders po
       INNER JOIN instruments i ON i.id = po.instrumentid
-      LEFT JOIN latest_price lp ON lp.instrumentid = po.instrumentid
+      -- Correlacionado por instrumento: un seek por posición contra
+      -- uq_marketdata_instrumentid_date, en vez de ordenar marketdata entera para quedarse
+      -- con una fila por instrumento.
+      LEFT JOIN LATERAL (
+        SELECT close, previousclose
+        FROM marketdata
+        WHERE instrumentid = po.instrumentid
+        ORDER BY date DESC
+        LIMIT 1
+      ) lp ON true
       WHERE po.quantity > 0
       ORDER BY i.ticker
       `,
