@@ -6,15 +6,31 @@ import { getConfig } from '../config/config';
 const REQUEST_ID_HEADER = 'x-request-id';
 
 /**
+ * Formato aceptado para un `x-request-id` entrante: alfanumérico, guiones y guiones bajos,
+ * hasta 128 caracteres. Cubre UUIDs y los formatos de trace id habituales (W3C
+ * `traceparent`, ULID, nanoid).
+ *
+ * El valor entrante lo controla quien hace el request y termina en cada línea de log, así
+ * que no puede usarse crudo. Lo grave no es el largo sino los caracteres de control: un
+ * `\n` en el header inyecta líneas falsas en la salida de logs, indistinguibles de las
+ * reales para quien después las lee o las parsea. El cap de largo evita, además, que un
+ * header de 100 KB se replique en cada línea del request.
+ */
+const VALID_REQUEST_ID = /^[\w-]{1,128}$/;
+
+/**
  * ID de correlación por request (issue #9): reusa el `x-request-id` entrante si el
- * cliente/proxy ya mandó uno (para no cortar la trazabilidad end-to-end), si no genera
- * un UUID nuevo. Se devuelve también en la respuesta para que el cliente pueda
- * correlacionar sus propios logs con los del server.
+ * cliente/proxy ya mandó uno **y tiene forma de id** (para no cortar la trazabilidad
+ * end-to-end), si no genera un UUID nuevo. Se devuelve también en la respuesta para que el
+ * cliente pueda correlacionar sus propios logs con los del server.
+ *
+ * Un header inválido se descarta en silencio, sin error: el cliente no pidió nada mal, y
+ * fallar el request por un header de observabilidad sería peor que ignorarlo.
  */
 export function genReqId(req: IncomingMessage, res: ServerResponse): string {
   const existing = req.headers[REQUEST_ID_HEADER];
   const id =
-    typeof existing === 'string' && existing.length > 0
+    typeof existing === 'string' && VALID_REQUEST_ID.test(existing)
       ? existing
       : randomUUID();
   res.setHeader(REQUEST_ID_HEADER, id);
