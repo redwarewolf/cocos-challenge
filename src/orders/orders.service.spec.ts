@@ -330,13 +330,15 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
       );
     });
 
-    it('ordena por datetime descendente (más reciente primero)', async () => {
+    it('ordena por datetime descendente, con desempate por id para que el paginado sea estable', async () => {
       orderRepository.findAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll({ userId: 1 });
 
+      // El desempate importa: `datetime` no es único, y sin criterio total el orden
+      // entre filas empatadas puede cambiar de una página a otra.
       expect(orderRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({ order: { datetime: 'DESC' } }),
+        expect.objectContaining({ order: { datetime: 'DESC', id: 'DESC' } }),
       );
     });
 

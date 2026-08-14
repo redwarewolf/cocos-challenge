@@ -236,6 +236,47 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
     });
   });
 
+  describe('Paginación estable del historial con datetime empatado', () => {
+    // Bloque autocontenido, con su propio usuario. Las órdenes se insertan directo con
+    // el mismo datetime: por la API haría falta que dos requests cayeran en el mismo
+    // milisegundo, que pasa en la práctica pero no se puede forzar de forma confiable.
+    const userId = 4;
+    const totalOrdenes = 6;
+
+    beforeAll(async () => {
+      const dataSource = app.get(DataSource);
+      await dataSource.query(
+        `INSERT INTO users (id, email, accountNumber) VALUES (4, 'paginado@test.com', '90004')`,
+      );
+      await dataSource.query(
+        `INSERT INTO orders (instrumentId, userId, size, price, side, status, "type", datetime)
+         SELECT 2, 4, 1, 900, 'BUY', 'FILLED', 'MARKET', '2024-02-01 12:00:00'
+         FROM generate_series(1, $1)`,
+        [totalOrdenes],
+      );
+    });
+
+    it('paginar no repite ni pierde filas cuando el datetime empata', async () => {
+      const vistas: number[] = [];
+
+      for (let page = 1; page <= totalOrdenes / 2; page++) {
+        const res = await request(app.getHttpServer())
+          .get('/v1/orders')
+          .query({ userId, page, limit: 2 });
+
+        expect(res.status).toBe(200);
+        expect(res.body.total).toBe(totalOrdenes);
+        const data = res.body.data as { id: number }[];
+        vistas.push(...data.map((o) => o.id));
+      }
+
+      // Sin desempate por id, alguna fila podría aparecer en dos páginas y otra en
+      // ninguna: el total de ids vistos seguiría siendo 6, pero los únicos, no.
+      expect(vistas).toHaveLength(totalOrdenes);
+      expect(new Set(vistas).size).toBe(totalOrdenes);
+    });
+  });
+
   describe('POST /orders — validaciones de input', () => {
     it('400 si una orden LIMIT no manda price', async () => {
       const res = await request(app.getHttpServer()).post('/v1/orders').send({

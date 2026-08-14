@@ -159,7 +159,12 @@ export class OrdersService {
 
     const [data, total] = await this.orderRepository.findAndCount({
       where,
-      order: { datetime: 'DESC' },
+      // El desempate por `id` no es cosmético: `datetime` no es único (se setea con
+      // `new Date()`, y dos órdenes del mismo usuario pueden caer en el mismo
+      // milisegundo). Sin un criterio total, Postgres no garantiza un orden estable
+      // entre dos queries con distinto OFFSET, así que una fila empatada puede
+      // repetirse en una página y faltar en la otra. `id` es único y monotónico.
+      order: { datetime: 'DESC', id: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
