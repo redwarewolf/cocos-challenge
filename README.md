@@ -35,7 +35,7 @@ docker compose up --build
 
 La API queda escuchando en `http://localhost:3000` (configurable con `PORT`, en ambas opciones).
 Documentación interactiva (Swagger UI) en `http://localhost:3000/docs`, JSON crudo (OpenAPI) en
-`/docs-json`.
+`/docs-json`. Solo se montan fuera de producción: el schema describe toda la superficie de la API.
 
 El esquema se versiona con migraciones (`npm run migration:run`). La base provista ya las tiene
 aplicadas; el comando es idempotente y solo corre las pendientes.

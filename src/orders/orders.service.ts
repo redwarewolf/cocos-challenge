@@ -39,11 +39,6 @@ export class OrdersService {
   ) {}
 
   async create(dto: CreateOrderDto, idempotencyKey?: string): Promise<Order> {
-    if (dto.side !== OrderSide.BUY && dto.side !== OrderSide.SELL) {
-      throw new BadRequestException(
-        'side must be BUY or SELL for this endpoint',
-      );
-    }
     if ((dto.size === undefined) === (dto.amount === undefined)) {
       throw new BadRequestException(
         'Provide exactly one of "size" or "amount"',

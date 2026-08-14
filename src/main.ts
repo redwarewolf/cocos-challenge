@@ -12,6 +12,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
+  // Ante SIGTERM (deploy, `docker stop`), Nest deja de aceptar conexiones, espera a que
+  // terminen los requests en vuelo y recién ahí cierra el pool de la base.
+  app.enableShutdownHooks();
+
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
 
   app.useGlobalPipes(
@@ -22,15 +26,19 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Cocos Challenge — Backend')
-    .setDescription(
-      'Portfolio, búsqueda de instrumentos y envío de órdenes. Ver README/CONTRIBUTING en el repo.',
-    )
-    .setVersion('1.0')
-    .build();
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, swaggerDocument); // UI en /docs, JSON crudo en /docs-json
+  // Fuera de producción: el schema describe toda la superficie de la API, que es información
+  // gratuita para quien busca por dónde entrar.
+  if (process.env.NODE_ENV !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Cocos Challenge — Backend')
+      .setDescription(
+        'Portfolio, búsqueda de instrumentos y envío de órdenes. Ver README/CONTRIBUTING en el repo.',
+      )
+      .setVersion('1.0')
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, swaggerDocument); // UI en /docs, JSON crudo en /docs-json
+  }
 
   await app.listen(getConfig().port);
 }
