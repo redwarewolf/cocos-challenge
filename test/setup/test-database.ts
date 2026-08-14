@@ -11,14 +11,14 @@ import { buildDataSourceOptions } from '../../src/database/data-source';
 let container: StartedPostgreSqlContainer | undefined;
 
 /**
- * Levanta un Postgres real (Testcontainers), corre nuestras migraciones reales contra
- * él (las mismas que se aplican a la Neon de Cocos, único origen de verdad del esquema) y
- * carga un seed de test propio, y
- * apunta `process.env.DATABASE_URL`/`DB_SSL` a esa instancia. Se usa en vez de la base
- * compartida de Neon para que los e2e no dependan de la red ni puedan pisar datos
- * reales, para poder ejercitar features Postgres-específicas (CTEs, DISTINCT ON,
- * pg_advisory_xact_lock) que no corren en un mock/SQLite, y de yapa esto prueba que
- * nuestras migraciones realmente funcionan de punta a punta contra una base vacía.
+ * Levanta un Postgres real (Testcontainers), le corre las migraciones del proyecto y un
+ * seed de test propio, y apunta `process.env.DATABASE_URL`/`DB_SSL` a esa instancia.
+ *
+ * Contra un Postgres real y no un mock/SQLite porque la lógica depende de features
+ * Postgres-específicas (CTEs, `DISTINCT ON`, `pg_advisory_xact_lock`, `ON CONFLICT`), y
+ * descartable en vez de la base compartida para que ninguna corrida pueda tocar datos
+ * reales. Correr las migraciones —en vez de un esquema hardcodeado— hace que el verde
+ * pruebe también que construyen un esquema funcional desde cero.
  */
 export async function startTestDatabase(): Promise<void> {
   container = await new PostgreSqlContainer('postgres:16-alpine')

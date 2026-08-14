@@ -54,8 +54,9 @@ reproduce, y garantiza que ninguna corrida pueda tocar datos reales.
 
 **Cada bloque e2e con estado crea su propio usuario** y arma sus propias órdenes, en vez de heredar
 lo que dejaron los anteriores. Un test acoplado al orden falla por razones que no tienen que ver con
-el código que prueba, y esa señal es peor que no tenerla. El aislamiento además permite asertar
-cantidades exactas donde antes había que conformarse con `greaterThan(0)`.
+el código que prueba, y esa señal es peor que no tenerla. El aislamiento además habilita asertar
+cantidades exactas: heredando estado hay que conformarse con `greaterThan(0)`, que pasa igual aunque
+un filtro devuelva de más.
 
 Los `it` **dentro** de un bloque sí pueden ser una secuencia deliberada (comprar → vender →
 cancelar): ahí el orden es el flujo bajo prueba. Lo que se evita es la dependencia *entre* bloques.
@@ -283,7 +284,9 @@ peor que ignorarlo. Nivel configurable con `LOG_LEVEL`, `silent` en test, format
 de producción.
 
 **Versionado de rutas**: todo bajo `/v1/...`, salvo `GET /health`, que es `VERSION_NEUTRAL` — un
-healthcheck no debería depender de qué versión de la API se pida. No se versiona "por las dudas":
+healthcheck no debería depender de qué versión de la API se pida. `/docs` y `/docs-json` tampoco
+llevan prefijo, pero por otro motivo: `SwaggerModule` los monta aparte, no como rutas de un
+controller, así que el versionado no los alcanza. No se versiona "por las dudas":
 no hay clientes reales todavía, pero tener la infraestructura lista evita migrar retroactivamente
 todas las rutas el día que un cambio incompatible necesite convivir con clientes existentes.
 

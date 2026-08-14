@@ -51,17 +51,12 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
   });
 
   /**
-   * Cada bloque con estado arma su propio usuario en vez de compartir los del seed. Así
-   * ningún `describe` depende de lo que dejaron los anteriores: se puede reordenarlos,
-   * insertar uno en el medio o correr uno solo con `.only` sin que fallen asserts por
-   * razones ajenas al código bajo prueba.
+   * Cada bloque con estado arma su propio usuario en vez de compartir los del seed, así
+   * ningún `describe` depende del orden de ejecución: se puede reordenarlos, insertar uno
+   * en el medio o correr uno solo con `.only`.
    *
    * Los usuarios del seed (1 y 2) quedan reservados para el bloque que verifica el estado
-   * inicial, que es de solo lectura — si algún test los mutara, ese bloque volvería a
-   * depender del orden.
-   *
-   * El id lo genera la secuencia (no se hardcodea) para que agregar un bloque nuevo no
-   * obligue a buscar qué ids ya están tomados.
+   * inicial, que es de solo lectura.
    */
   let usuariosCreados = 0;
 
@@ -272,9 +267,9 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       ) as { quantity: number; totalCost: number; performancePct: number };
 
       expect(position.quantity).toBe(5);
-      // 8000 / 10 = 800 de costo promedio × 5 que quedan = 4000. La fórmula anterior
-      // (Σ BUY − Σ SELL) daba 8000 − 10000 = -2000, y con ese costo negativo el
-      // performancePct caía en el guard `> 0` y se reportaba 0% en la posición más
+      // 8000 / 10 = 800 de costo promedio × 5 que quedan = 4000. Calcularlo como
+      // Σ BUY − Σ SELL daría 8000 − 10000 = -2000, y con un costo negativo el
+      // performancePct cae en el guard `> 0` y se reporta 0% en la posición más
       // rentable de la cuenta.
       expect(position.totalCost).toBe(4000);
       // 5 × 900 (último close del seed) = 4500 ⇒ (4500 - 4000) / 4000 = 12.5%
@@ -384,9 +379,8 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
   });
 
   describe('POST /orders y PATCH /orders/:id/cancel — flujo completo', () => {
-    // Los `it` de este bloque sí son una secuencia deliberada (comprar, vender, cancelar):
-    // el acoplamiento entre ellos es el flujo bajo prueba. Lo que se elimina es el
-    // acoplamiento *entre bloques*, armando acá el estado en vez de heredarlo.
+    // Los `it` de este bloque corren en secuencia a propósito: comprar, vender y cancelar
+    // encadenados son el flujo bajo prueba, no un accidente.
     let userId: number;
     let userSinFondos: number;
     let limitOrderId: number;
@@ -749,10 +743,6 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
   });
 
   describe('GET /orders — historial paginado', () => {
-    // Historial construido acá y no heredado de los bloques anteriores. Por eso los
-    // asserts pueden ser cantidades exactas: si el total dependiera de cuántas órdenes
-    // dejaron los tests de arriba, habría que conformarse con `greaterThan(0)` — que pasa
-    // igual aunque el filtro por status devuelva de más.
     let userId: number;
     const comprasFilled = 5;
     const totalOrdenes = comprasFilled + 2; // + el CASH_IN inicial + 1 SELL rechazada
@@ -902,8 +892,8 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
 
     it('la misma key desde dos usuarios distintos crea dos órdenes, cada una de su dueño', async () => {
       // La key la elige el cliente, así que la colisión entre cuentas no es hipotética.
-      // Con la constraint UNIQUE global anterior, el segundo usuario recibía la orden del
-      // primero: userId, instrumento, size y precio ajenos.
+      // Con una constraint UNIQUE global sobre la key sola, el segundo usuario recibiría
+      // la orden del primero: userId, instrumento, size y precio ajenos.
       const key = 'e2e-misma-key-dos-usuarios';
 
       const first = await request(app.getHttpServer())

@@ -15,11 +15,9 @@ export class InstrumentsService {
   ) {}
 
   /**
-   * Busca por ticker y/o nombre (case-insensitive, substring). Se excluye el instrumento
-   * de tipo MONEDA (ARS) porque no es un "activo" que un usuario busque para operar.
-   * Los resultados se ordenan priorizando match exacto de ticker, luego prefijo, luego el resto.
-   * Paginado con page/limit (offset-based): alcanza para el volumen de un mercado real
-   * (miles de instrumentos, no millones), no se justifica paginado por cursor acá.
+   * Se excluye el instrumento de tipo MONEDA (ARS) porque no es un activo que un usuario
+   * busque para operar, y el ranking prioriza match exacto de ticker sobre prefijo y sobre
+   * coincidencia parcial en el nombre: buscar "ggal" tiene que devolver GGAL primero.
    */
   async search(
     query: string,

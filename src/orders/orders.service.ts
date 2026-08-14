@@ -98,7 +98,6 @@ export class OrdersService {
     );
   }
 
-  /** Deposita (CASH_IN) o retira (CASH_OUT) pesos de la cuenta del usuario. */
   async createCashMovement(
     dto: CreateCashMovementDto,
     idempotencyKey?: string,
