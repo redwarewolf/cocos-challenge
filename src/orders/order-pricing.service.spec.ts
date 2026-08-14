@@ -86,8 +86,8 @@ describe('OrderPricingService', () => {
     });
 
     it('el mensaje de error no habla de comprar: resolveSize es común a BUY y SELL', () => {
-      // Un SELL por monto insuficiente recibía "not enough to buy at least one share",
-      // que describe la operación contraria a la que el cliente pidió.
+      // resolveSize es común a BUY y SELL: un mensaje que hable de comprar describe la
+      // operación contraria a la que pidió quien manda un SELL por monto.
       expect(() =>
         service.resolveSize(
           { side: OrderSide.SELL, amount: 100 } as never,

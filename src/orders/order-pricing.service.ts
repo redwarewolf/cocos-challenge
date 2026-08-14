@@ -10,8 +10,8 @@ import {
 } from '../database/entities/order.entity';
 
 /**
- * Reglas de negocio de precio/tamaño/estado específicas de BUY/SELL (issue #35, extraído
- * de OrdersService) — no las usan los movimientos de cash (CASH_IN/CASH_OUT), que tienen
+ * Reglas de negocio de precio/tamaño/estado específicas de BUY/SELL — no las usan los
+ * movimientos de cash (CASH_IN/CASH_OUT), que tienen
  * su propia regla mucho más simple, inline en OrdersService.createCashMovement.
  */
 @Injectable()
@@ -50,7 +50,7 @@ export class OrderPricingService {
     const size = new Decimal(dto.amount!).dividedBy(price).floor().toNumber();
     if (size < 1) {
       // Mensaje neutro respecto del lado de la operación: resolveSize es común a BUY y
-      // SELL, así que hablar de "comprar" dejaba a un SELL por monto con un error que
+      // SELL, así que hablar de "comprar" le daría a un SELL por monto un error que
       // describe otra operación.
       throw new BadRequestException(
         '"amount" is not enough for at least one share at the current price',

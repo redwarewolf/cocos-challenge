@@ -20,7 +20,7 @@ export class ValuationService {
     private readonly instrumentRepository: Repository<Instrument>,
   ) {}
 
-  /** Resolves the id of the instrument that represents cash (ARS), instead of hardcoding it. */
+  /** Se resuelve por ticker en runtime en vez de hardcodear el id del instrumento ARS. */
   async getCashInstrument(): Promise<Instrument> {
     const cash = await this.instrumentRepository.findOne({
       where: { ticker: CASH_TICKER, type: InstrumentType.MONEDA },
@@ -90,7 +90,6 @@ export class ValuationService {
     return Number(rows[0]?.quantity ?? 0);
   }
 
-  /** Último precio de cierre conocido (marketdata.close más reciente) para un instrumento. */
   async getLastClose(
     instrumentId: number,
     manager: EntityManager = this.orderRepository.manager,
@@ -174,7 +173,7 @@ export class ValuationService {
       // Difiere del promedio ponderado "running" (que recalcularía el promedio después de
       // cada compra) solo si se intercalan compras y ventas; si todas las compras preceden
       // a las ventas, son idénticos. La versión exacta necesita window functions con
-      // estado ordenado por datetime — ver README.
+      // estado ordenado por datetime — ver DECISIONS.md.
       const buySize = new Decimal(row.buySize);
       const totalCost = buySize.greaterThan(0)
         ? new Decimal(row.buyAmount).dividedBy(buySize).times(quantity)

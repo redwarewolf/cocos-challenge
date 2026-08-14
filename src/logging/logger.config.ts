@@ -19,7 +19,7 @@ const REQUEST_ID_HEADER = 'x-request-id';
 const VALID_REQUEST_ID = /^[\w-]{1,128}$/;
 
 /**
- * ID de correlación por request (issue #9): reusa el `x-request-id` entrante si el
+ * ID de correlación por request: reusa el `x-request-id` entrante si el
  * cliente/proxy ya mandó uno **y tiene forma de id** (para no cortar la trazabilidad
  * end-to-end), si no genera un UUID nuevo. Se devuelve también en la respuesta para que el
  * cliente pueda correlacionar sus propios logs con los del server.

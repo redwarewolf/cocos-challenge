@@ -150,8 +150,8 @@ describe('ValuationService', () => {
       expect(position.quantity).toBe(40);
       expect(position.totalCost).toBe(37100);
       expect(position.marketValue).toBeCloseTo(37034, 5);
-      // -0.177897...% redondeado a 2 decimales (issue #7): antes se devolvía tal cual,
-      // arrastrando el ruido de punto flotante hasta la respuesta de la API.
+      // -0.177897...% redondeado a 2 decimales: la API no devuelve el valor crudo, para
+      // no arrastrar el ruido de punto flotante hasta la respuesta.
       expect(position.performancePct).toBe(-0.18);
     });
 
@@ -292,9 +292,9 @@ describe('ValuationService', () => {
       expect(positions).toEqual([]);
     });
 
-    it('marketValue === totalCost da performancePct exactamente 0, sin ruido de floats (issue #7)', async () => {
-      // 100 * 19.9 en floats nativos de JS da 1989.9999999999998 (no 1990), lo que
-      // antes de decimal.js dejaba un performancePct de -1.14e-14 en vez de 0.
+    it('marketValue === totalCost da performancePct exactamente 0, sin ruido de floats', async () => {
+      // 100 * 19.9 en floats nativos de JS da 1989.9999999999998, no 1990: sin decimal.js
+      // el performancePct sale -1.14e-14 en vez de 0.
       queryFn.mockResolvedValue([
         {
           instrumentId: 1,
@@ -315,10 +315,10 @@ describe('ValuationService', () => {
     });
 
     it('el costo no depende del precio al que se vendió: vender con ganancia no lo vuelve negativo', async () => {
-      // Historia: BUY 10 @ 800 y SELL 5 @ 2000. Quedan 5 a un costo promedio de 800.
-      // La fórmula anterior (Σ BUY − Σ SELL) daba 8000 − 10000 = -2000: un costo
-      // negativo, que además hacía caer el performancePct en el guard `> 0` y lo
-      // reportaba como 0% justo en el caso donde más se ganó.
+      // Escenario: BUY 10 @ 800 y SELL 5 @ 2000. Quedan 5 a un costo promedio de 800.
+      // Calcular el costo como Σ BUY − Σ SELL daría 8000 − 10000 = -2000: un costo
+      // negativo, que además cae en el guard `performancePct > 0` y reporta 0% justo
+      // en el caso donde más se ganó.
       queryFn.mockResolvedValue([
         {
           instrumentId: 1,
@@ -340,8 +340,8 @@ describe('ValuationService', () => {
     });
 
     it('distorsiona el rendimiento aunque el costo no llegue a ser negativo', async () => {
-      // Historia: BUY 10 @ 100 y SELL 5 @ 150, cotización actual 160.
-      // La fórmula anterior daba un costo de 1000 − 750 = 250 y un performancePct de
+      // Escenario: BUY 10 @ 100 y SELL 5 @ 150, cotización actual 160.
+      // Σ BUY − Σ SELL daría un costo de 1000 − 750 = 250 y un performancePct de
       // (800 − 250) / 250 = 220%: positivo, plausible y sin disparar ningún guard,
       // cuando el rendimiento real de la posición es 60% (de 100 a 160).
       queryFn.mockResolvedValue([

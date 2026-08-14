@@ -12,7 +12,6 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** Función pura para poder testearla sin depender de `process.env`. */
 export function resolvePageSize(rawValue: string | undefined): number {
   return Math.min(parsePositiveInt(rawValue, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
 }
@@ -25,11 +24,6 @@ export function resolvePageSize(rawValue: string | undefined): number {
 export const PAGE_SIZE = resolvePageSize(process.env.PAGE_SIZE);
 
 export interface AppConfig {
-  /**
-   * No se valida acá (se evaluó y se descartó — ver issue #11): si falta o está mal
-   * escrita, el propio driver de Postgres/TypeORM falla al conectar con un error
-   * suficientemente claro sobre cuál es el problema.
-   */
   databaseUrl: string | undefined;
   dbSsl: boolean;
   port: number;

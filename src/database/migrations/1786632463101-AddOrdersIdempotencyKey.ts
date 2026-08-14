@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * Columna aditiva (issue #8): soporte de idempotencia para POST /orders y
+ * Columna aditiva: soporte de idempotencia para POST /orders y
  * POST /orders/cash vía header `Idempotency-Key`. Nullable — la gran mayoría de las
  * filas no la van a tener, solo se completa cuando el cliente manda el header. La
  * constraint UNIQUE es lo que hace atómica la detección de duplicados a nivel DB

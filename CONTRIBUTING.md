@@ -59,7 +59,7 @@ Conventional Commits, el que corresponda según qué es lo que predomina en el c
 | `fix` | corrección de un bug |
 | `test` | agregar o modificar tests, sin cambiar comportamiento de producción |
 | `ci` | pipelines, workflows, configuración de integración continua |
-| `docs` | README, CONTRIBUTING, comentarios, sin cambios de código |
+| `docs` | README, DECISIONS, CONTRIBUTING, comentarios, sin cambios de código |
 | `chore` | tareas de mantenimiento que no encajan en las anteriores (deps, configs) |
 | `refactor` | reestructurar código sin cambiar comportamiento externo |
 

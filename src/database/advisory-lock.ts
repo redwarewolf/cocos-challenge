@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 
 /**
- * Advisory lock transaccional de Postgres (issue #35, extraído de OrdersService):
+ * Advisory lock transaccional de Postgres:
  * serializa cualquier lógica que necesite leer-y-luego-escribir de forma segura por una
  * key numérica (ej. un `userId`), sin bloquear a quienes usan una key distinta. Se libera
  * solo al commitear/rollbackear la transacción. No es específico de órdenes — es un
