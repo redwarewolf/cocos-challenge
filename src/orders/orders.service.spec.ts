@@ -15,6 +15,7 @@ import {
 } from '../database/entities/order.entity';
 import { User } from '../database/entities/user.entity';
 import { ValuationService } from '../valuation/valuation.service';
+import { CreateOrderDto } from './dto/create-order.dto';
 import { IdempotentOrderWriter, OrderData } from './idempotent-order-writer';
 import { OrderPricingService } from './order-pricing.service';
 import { OrdersService } from './orders.service';
@@ -229,6 +230,134 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
         7,
         expect.any(Function),
       );
+    });
+  });
+
+  // POST /orders acepta los cuatro sides: la consigna modela CASH_IN/CASH_OUT como sides de la
+  // tabla orders, así que un cliente que copie esa forma tiene que funcionar.
+  describe('create — sides de cash delegados en createCashMovement', () => {
+    beforeEach(() => {
+      valuationService.getCashInstrument.mockResolvedValue(cash);
+      valuationService.getBuyingPower.mockResolvedValue(100000);
+    });
+
+    it('un CASH_IN con "amount" se persiste como movimiento de cash', async () => {
+      const order = await service.create({
+        userId: 1,
+        side: OrderSide.CASH_IN,
+        amount: 50000,
+      } as CreateOrderDto);
+
+      expect(order.instrumentId).toBe(cash.id);
+      expect(order.size).toBe(50000);
+      expect(order.price).toBe('1.00');
+      expect(order.status).toBe(OrderStatus.FILLED);
+    });
+
+    // Con precio 1 el monto y la cantidad son el mismo número.
+    it('toma el monto de "size" cuando no viene "amount"', async () => {
+      const order = await service.create({
+        userId: 1,
+        side: OrderSide.CASH_IN,
+        size: 50000,
+      } as CreateOrderDto);
+
+      expect(order.size).toBe(50000);
+    });
+
+    it('acepta el payload con la forma de la tabla orders', async () => {
+      const order = await service.create({
+        userId: 1,
+        instrumentId: cash.id,
+        side: OrderSide.CASH_IN,
+        type: OrderType.MARKET,
+        size: 50000,
+        price: 1,
+      });
+
+      expect(order.status).toBe(OrderStatus.FILLED);
+      expect(order.size).toBe(50000);
+    });
+
+    it('un CASH_OUT sin disponible suficiente queda REJECTED, no falla', async () => {
+      valuationService.getBuyingPower.mockResolvedValue(1000);
+
+      const order = await service.create({
+        userId: 1,
+        side: OrderSide.CASH_OUT,
+        amount: 50000,
+      } as CreateOrderDto);
+
+      expect(order.status).toBe(OrderStatus.REJECTED);
+    });
+
+    it('propaga la Idempotency-Key al writer', async () => {
+      await service.create(
+        { userId: 9, side: OrderSide.CASH_IN, amount: 1000 } as CreateOrderDto,
+        'cash-key',
+      );
+
+      expect(idempotentOrderWriter.write).toHaveBeenCalledWith(
+        'cash-key',
+        9,
+        expect.any(Function),
+      );
+    });
+
+    it('rechaza (400) un movimiento de cash sobre un instrumento que no es MONEDA', async () => {
+      await expect(
+        service.create({
+          userId: 1,
+          instrumentId: stock.id,
+          side: OrderSide.CASH_IN,
+          size: 50000,
+        } as CreateOrderDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza (400) un movimiento de cash de tipo LIMIT', async () => {
+      await expect(
+        service.create({
+          userId: 1,
+          side: OrderSide.CASH_IN,
+          type: OrderType.LIMIT,
+          size: 50000,
+        } as CreateOrderDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza (400) un movimiento de cash a un precio que no sea 1', async () => {
+      await expect(
+        service.create({
+          userId: 1,
+          side: OrderSide.CASH_IN,
+          size: 50000,
+          price: 500,
+        } as CreateOrderDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    // `orders.size` es INT, y el monto se persiste ahí.
+    it('rechaza (400) un monto con centavos', async () => {
+      await expect(
+        service.create({
+          userId: 1,
+          side: OrderSide.CASH_IN,
+          amount: 1000.5,
+        } as CreateOrderDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('no resuelve el instrumento de cash si el request no manda instrumentId', async () => {
+      await service.create({
+        userId: 1,
+        side: OrderSide.CASH_IN,
+        amount: 1000,
+      } as CreateOrderDto);
+
+      // getCashInstrument igual se llama una vez, adentro de createCashMovement, para saber
+      // sobre qué instrumento se persiste: lo que se evita es la consulta extra de validación.
+      expect(valuationService.getCashInstrument).toHaveBeenCalledTimes(1);
     });
   });
 
