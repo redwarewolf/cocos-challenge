@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { AdvisoryLock } from '../database/advisory-lock';
+import { AdvisoryLock, LockNamespace } from '../database/advisory-lock';
 import {
   Order,
   OrderSide,
@@ -50,6 +50,7 @@ describe('IdempotentOrderWriter', () => {
   const advisoryLock = {
     withLock: jest.fn(
       (
+        _namespace: LockNamespace,
         _userId: number,
         fn: (manager: typeof transactionalManager) => Promise<Order>,
       ) => fn(transactionalManager),
@@ -76,7 +77,11 @@ describe('IdempotentOrderWriter', () => {
     );
 
     expect(orderRepository.findOne).not.toHaveBeenCalled();
-    expect(advisoryLock.withLock).toHaveBeenCalledWith(1, expect.any(Function));
+    expect(advisoryLock.withLock).toHaveBeenCalledWith(
+      LockNamespace.USER,
+      1,
+      expect.any(Function),
+    );
     expect(order.idempotencyKey).toBeNull();
   });
 
