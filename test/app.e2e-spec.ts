@@ -130,6 +130,20 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(res.body).toMatchObject({ data: [], total: 0 });
     });
 
+    it('no interpreta los wildcards de LIKE del término de búsqueda', async () => {
+      // `_` matchea cualquier carácter en LIKE: sin escapar, GG_L devolvería GGAL.
+      const guionBajo = await request(app.getHttpServer())
+        .get('/v1/instruments/search')
+        .query({ q: 'GG_L' });
+      expect(guionBajo.body).toMatchObject({ data: [], total: 0 });
+
+      // `%` matchea cualquier cosa: sin escapar, devolvería el listado completo.
+      const porcentaje = await request(app.getHttpServer())
+        .get('/v1/instruments/search')
+        .query({ q: '%' });
+      expect(porcentaje.body).toMatchObject({ data: [], total: 0 });
+    });
+
     it('devuelve una página vacía si no hay resultados', async () => {
       const res = await request(app.getHttpServer())
         .get('/v1/instruments/search')
