@@ -4,10 +4,8 @@ import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import { MAX_PAGE_SIZE, PAGE_SIZE } from '../../config/config';
 
 /**
- * Query params de paginación compartidos entre endpoints (búsqueda de instrumentos,
- * historial de órdenes). `@Type(() => Number)` es necesario para que class-validator
- * valide un número real: los query params llegan como string y el ValidationPipe
- * global no tiene `enableImplicitConversion`.
+ * Query params de paginación compartidos entre endpoints. El `@Type(() => Number)` hace falta
+ * porque los query params llegan como string y el ValidationPipe no convierte implícitamente.
  */
 export class PaginationQueryDto {
   @ApiPropertyOptional({ example: 1, default: 1, minimum: 1 })

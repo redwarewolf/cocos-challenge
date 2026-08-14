@@ -3,17 +3,17 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 
 /**
- * Advisory lock transaccional de Postgres:
- * serializa cualquier lógica que necesite leer-y-luego-escribir de forma segura por una
- * key numérica (ej. un `userId`), sin bloquear a quienes usan una key distinta. Se libera
- * solo al commitear/rollbackear la transacción. No es específico de órdenes — es un
- * primitivo de concurrencia genérico, reusable por cualquier feature futura que necesite
- * el mismo patrón de serialización por key.
+ * Advisory lock transaccional de Postgres: serializa un leer-y-luego-escribir por una key
+ * numérica, sin bloquear a quienes usan otra key.
  */
 @Injectable()
 export class AdvisoryLock {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
+  /**
+   * Corre `fn` con el lock de `key` tomado, dentro de una transacción. El lock se libera al
+   * commitear o rollbackear, no antes.
+   */
   async withLock<T>(
     key: number,
     fn: (manager: EntityManager) => Promise<T>,

@@ -10,20 +10,14 @@ import {
   OrderType,
 } from '../database/entities/order.entity';
 
-/**
- * Reglas de negocio de precio/tamaño/estado específicas de BUY/SELL — no las usan los
- * movimientos de cash (CASH_IN/CASH_OUT), que tienen
- * su propia regla mucho más simple, inline en OrdersService.createCashMovement.
- */
+/** Resuelve precio, tamaño y estado de una orden BUY/SELL a partir del request. */
 @Injectable()
 export class OrderPricingService {
   constructor(private readonly valuationService: ValuationService) {}
 
   /**
-   * Redondea a 2 decimales acá (no al guardar la orden): el precio que se usa para
-   * calcular `size`/validar fondos debe ser el mismo que después se persiste, si no,
-   * un LIMIT con más de 2 decimales (`@IsNumber()` no lo restringe) podría validarse
-   * contra un precio y guardarse con otro ligeramente distinto.
+   * Precio de ejecución: el último cierre para MARKET, el del request para LIMIT. Se redondea
+   * a la escala de la columna acá, para validar contra el mismo precio que se va a persistir.
    */
   async resolvePrice(
     dto: CreateOrderDto,
@@ -44,6 +38,7 @@ export class OrderPricingService {
     return lastClose;
   }
 
+  /** Cantidad de acciones: la del request, o las que entran enteras en `amount` al precio dado. */
   resolveSize(dto: CreateOrderDto, price: number): number {
     if (dto.size !== undefined) {
       return dto.size;
@@ -57,9 +52,6 @@ export class OrderPricingService {
       );
     }
     if (size < 1) {
-      // Mensaje neutro respecto del lado de la operación: resolveSize es común a BUY y
-      // SELL, así que hablar de "comprar" le daría a un SELL por monto un error que
-      // describe otra operación.
       throw new BadRequestException(
         '"amount" is not enough for at least one share at the current price',
       );
@@ -67,15 +59,16 @@ export class OrderPricingService {
     return size;
   }
 
+  /**
+   * Estado con el que nace la orden: REJECTED si el disponible no alcanza, y si alcanza
+   * FILLED cuando es MARKET o NEW cuando es LIMIT.
+   */
   async resolveStatus(
     dto: CreateOrderDto,
     size: number,
     price: number,
     manager: EntityManager,
   ): Promise<OrderStatus> {
-    // Contra el poder de compra y la tenencia vendible, no contra el disponible liquidado:
-    // las órdenes NEW ya comprometieron esos pesos y esas acciones aunque todavía no se
-    // hayan ejecutado.
     const hasEnoughFunds =
       dto.side === OrderSide.BUY
         ? new Decimal(size)
