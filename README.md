@@ -390,9 +390,17 @@ al importar el módulo, porque a diferencia de `DATABASE_URL` ningún test lo pi
 **Logging estructurado y correlation id** (issue #9): reemplaza el logger default de Nest (texto
 plano) por `nestjs-pino` — logs en JSON, listos para ingestar por cualquier herramienta de
 observabilidad, en vez de líneas de texto a parsear. Cada request recibe un `x-request-id`
-(`src/logging/logger.config.ts`, `genReqId`): si el cliente/proxy ya mandó ese header se reusa (no
-corta la trazabilidad end-to-end si hay un gateway adelante), si no se genera un UUID nuevo — en
-ambos casos se devuelve también en la respuesta. `pino-http` (que trae `nestjs-pino`) loguea
+(`src/logging/logger.config.ts`, `genReqId`): si el cliente/proxy ya mandó ese header **y tiene
+forma de id** se reusa (no corta la trazabilidad end-to-end si hay un gateway adelante), si no se
+genera un UUID nuevo — en ambos casos se devuelve también en la respuesta.
+
+El valor entrante lo controla quien hace el request y termina en **cada línea de log**, así que se
+valida contra `/^[\w-]{1,128}$/` antes de reusarlo. Lo importante no es el largo sino los caracteres
+de control: un `\n` en el header inyecta líneas falsas en la salida de logs, indistinguibles de las
+reales para quien después las lee o las parsea con una herramienta. El cap de largo evita además que
+un header de 100 KB se replique en cada línea del request. Un header inválido se descarta en
+silencio y se genera un UUID: el cliente no pidió nada mal, y fallar un request por un header de
+observabilidad sería peor que ignorarlo. `pino-http` (que trae `nestjs-pino`) loguea
 automáticamente cada request/response con ese id, método, url, status y tiempo de respuesta, sin
 tocar los controllers/services — alcanza para reconstruir el orden temporal de requests
 concurrentes (el motivador original: diagnosticar problemas como el que ya se encontró y corrigió
