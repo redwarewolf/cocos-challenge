@@ -363,6 +363,18 @@ requeriría reinventar el esquema de respuesta. El tamaño de página default es
 entorno (`PAGE_SIZE`, ver `.env.example`; default 20 si no se define); el máximo permitido por
 request queda fijo en 100 (no es una env var, es solo una protección básica).
 
+Con paginado por offset, el orden tiene que ser **total** o el paginado se vuelve inconsistente: cada
+página es una query independiente, y si dos filas empatan en el criterio de orden, Postgres no
+garantiza que las devuelva en la misma posición relativa entre una query y otra — una fila puede
+aparecer en dos páginas y otra en ninguna. `GET /v1/orders` ordena por `datetime DESC` y `datetime`
+no es único (se setea con `new Date()`, y dos órdenes del mismo usuario pueden caer en el mismo
+milisegundo), así que se desempata por `id DESC`: único, monotónico y ya indexado por ser PK. El
+e2e lo verifica insertando varias órdenes con el mismo `datetime` y recorriendo todas las páginas.
+
+Vale aclarar por qué el arreglo no es tomar el `datetime` de la DB en vez de JS: `now()` es constante
+dentro de una transacción, así que también empataría. El problema no es de dónde sale el timestamp,
+es que un timestamp no alcanza como criterio de orden total.
+
 **Configuración centralizada**: todas las variables de entorno del proyecto (`DATABASE_URL`,
 `DB_SSL`, `PORT`, `PAGE_SIZE`) se leen en un único lugar, `src/config/config.ts`, en vez de estar
 dispersas por archivo. `getConfig()` (no un objeto estático) resuelve `DATABASE_URL`/`DB_SSL`/`PORT`
