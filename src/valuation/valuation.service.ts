@@ -24,7 +24,7 @@ export class ValuationService {
     this.logger.setContext(ValuationService.name);
   }
 
-  /** Se resuelve por ticker en runtime en vez de hardcodear el id del instrumento ARS. */
+  /** Instrumento que representa el cash (ARS), resuelto por ticker en runtime. */
   async getCashInstrument(): Promise<Instrument> {
     const cash = await this.instrumentRepository.findOne({
       where: { ticker: CASH_TICKER, type: InstrumentType.MONEDA },
@@ -36,17 +36,11 @@ export class ValuationService {
   }
 
   /**
-   * Pesos disponibles para operar: todos los movimientos FILLED (CASH_IN/OUT + BUY/SELL).
+   * Pesos liquidados: saldo de los movimientos FILLED, sumando CASH_IN y SELL y restando
+   * CASH_OUT y BUY.
    *
-   * Acepta un `manager` transaccional opcional: OrdersService lo usa para leer este valor
-   * dentro de la misma transacción en la que toma el advisory lock por usuario, así la
-   * lectura y el insert de la orden quedan protegidos contra condiciones de carrera
-   * (ver OrdersService.create).
-   *
-   * Sin `Decimal` a propósito: la suma la hace Postgres en `NUMERIC` (aritmética decimal
-   * exacta), así que `rows[0].available` ya llega como un string sin error de floats — acá
-   * solo se lo parsea una vez a `number`, no se opera sobre él. `Decimal` hace falta en
-   * `getPositions`/`getPortfolio` porque ahí sí se encadenan operaciones en JS.
+   * El `manager` opcional permite leer dentro de la transacción que toma el advisory lock,
+   * para que la lectura y el insert de la orden sean atómicos.
    */
   async getAvailableCash(
     userId: number,
@@ -90,11 +84,7 @@ export class ValuationService {
     return Number(rows[0]?.reserved ?? 0);
   }
 
-  /**
-   * Pesos que el usuario puede efectivamente comprometer ahora: el disponible menos lo ya
-   * comprometido. Las dos lecturas van secuenciales y no con `Promise.all` porque comparten el
-   * `manager`, y una transacción de TypeORM usa una sola conexión.
-   */
+  /** Pesos que se pueden comprometer en una orden nueva: liquidado menos reservado. */
   async getBuyingPower(
     userId: number,
     manager: EntityManager = this.orderRepository.manager,
@@ -104,11 +94,7 @@ export class ValuationService {
     return new Decimal(available).minus(reserved).toNumber();
   }
 
-  /**
-   * Tenencia neta (FILLED BUY - FILLED SELL) de un instrumento para un usuario.
-   * Usada tanto para armar el listado de posiciones como para validar ventas
-   * (mismo motivo del parámetro `manager` que en getAvailableCash).
-   */
+  /** Tenencia de un instrumento: compras menos ventas, sobre órdenes FILLED. */
   async getAvailableQuantity(
     userId: number,
     instrumentId: number,
@@ -176,12 +162,9 @@ export class ValuationService {
   }
 
   /**
-   * Listado de posiciones (activos con tenencia positiva), valuadas al último cierre.
-   *
-   * Cada posición trae dos rendimientos, que responden preguntas distintas:
-   * `performancePct` es el rendimiento total contra lo invertido (sale de las órdenes
-   * FILLED) y `dailyReturnPct` es el retorno del día contra el cierre anterior (sale de
-   * marketdata). Ninguno de los dos reemplaza al otro.
+   * Instrumentos con tenencia positiva, valuados al último cierre. Cada posición trae dos
+   * rendimientos: `performancePct` contra lo invertido y `dailyReturnPct` contra el cierre
+   * anterior.
    */
   async getPositions(userId: number): Promise<PortfolioPosition[]> {
     const rows: {
@@ -200,8 +183,7 @@ export class ValuationService {
         SELECT
           o.instrumentid,
           SUM(CASE WHEN o.side = 'BUY' THEN o.size ELSE -o.size END) AS quantity,
-          -- Solo las compras: el costo de lo que queda en cartera no depende del precio
-          -- al que se vendió el resto (ver el cálculo de totalCost más abajo).
+          -- Solo compras: alimentan el precio promedio con el que se valúa el costo.
           SUM(CASE WHEN o.side = 'BUY' THEN o.size * o.price ELSE 0 END) AS buy_amount,
           SUM(CASE WHEN o.side = 'BUY' THEN o.size ELSE 0 END) AS buy_size
         FROM orders o
@@ -243,9 +225,8 @@ export class ValuationService {
       [userId],
     );
 
-    // Una tenencia neta negativa significa más ventas FILLED que compras: no es un caso de
-    // negocio (la API impide vender de más) sino datos inconsistentes, y se avisa en vez de
-    // filtrarlos en silencio. El neto en cero sí se descarta sin más: es una posición cerrada.
+    // Un neto negativo son más ventas FILLED que compras: datos inconsistentes, porque la API
+    // impide vender de más. El neto en cero, en cambio, es una posición cerrada normal.
     const enDescubierto = rows.filter((row) => Number(row.quantity) < 0);
     if (enDescubierto.length > 0) {
       this.logger.warn(
@@ -263,26 +244,13 @@ export class ValuationService {
         const quantity = new Decimal(row.quantity);
 
         // Costo promedio ponderado: precio promedio de compra × lo que queda en cartera.
-        // Cada venta se considera consumida al costo promedio, que es lo que hace la
-        // contabilidad real — no es una aproximación de compromiso.
-        //
-        // La alternativa obvia (Σ BUY − Σ SELL) es flujo de caja neto, no costo: coincide
-        // solo mientras no haya ventas, y después miente. Vendiendo con ganancia puede dar
-        // negativo (un costo negativo no existe) y, peor, sin llegar a negativo distorsiona
-        // el rendimiento sin ninguna señal visible.
-        //
-        // Difiere del promedio ponderado "running" (que recalcularía el promedio después de
-        // cada compra) solo si se intercalan compras y ventas; si todas las compras preceden
-        // a las ventas, son idénticos. La versión exacta necesita window functions con
-        // estado ordenado por datetime — ver DECISIONS.md.
+        // Cada venta se considera consumida a ese promedio (ver DECISIONS.md §4).
         const buySize = new Decimal(row.buySize);
         const totalCost = buySize.greaterThan(0)
           ? new Decimal(row.buyAmount).dividedBy(buySize).times(quantity)
           : new Decimal(0);
 
-        // `null` y no 0 cuando falta la cotización, por el mismo motivo que
-        // `dailyReturnPct`: el valor es desconocido, y un 0 reportaría -100% de
-        // rendimiento sobre una posición que puede valer cualquier cosa.
+        // Sin cotización el valor de la posición es desconocido, no cero.
         const lastClose =
           row.lastClose === null ? null : new Decimal(row.lastClose);
         const marketValue =
@@ -300,11 +268,7 @@ export class ValuationService {
             : 0;
         }
 
-        // `previousclose` ya trae el cierre del día anterior en la misma fila de marketdata,
-        // así que el retorno diario no necesita un self-join contra el día previo: alcanza
-        // con la fila que `latest_price` ya seleccionó. Da igual calcularlo por acción o
-        // sobre la posición entera (la cantidad se cancela), así que el porcentaje no
-        // depende de la tenencia.
+        // Retorno del día contra el cierre anterior, que `marketdata` trae en la misma fila.
         const previousClose =
           row.previousClose === null ? null : new Decimal(row.previousClose);
         const dailyReturnPct =
@@ -317,8 +281,7 @@ export class ValuationService {
                 .times(100)
                 .toDecimalPlaces(2)
                 .toNumber()
-            : // `null` y no 0: sin alguno de los dos precios el retorno es desconocido, y un
-              // 0 sería indistinguible de "el precio no se movió".
+            : // Sin alguno de los dos precios el retorno es desconocido, no cero.
               null;
 
         return {
@@ -327,10 +290,6 @@ export class ValuationService {
           name: row.name,
           quantity: quantity.toNumber(),
           reservedQuantity: Number(row.reservedQuantity),
-          // Los dos precios que alimentan las métricas de arriba viajan en la respuesta:
-          // `dailyReturnPct` es el único número que el cliente no podría reconstruir
-          // (`lastPrice` se deduciría de marketValue/quantity, pero `previousClose` no sale
-          // de ningún lado), y una fila de posición necesita el precio unitario igual.
           lastPrice: lastClose === null ? null : lastClose.toNumber(),
           previousClose:
             previousClose === null ? null : previousClose.toNumber(),
@@ -352,8 +311,7 @@ export class ValuationService {
       this.getPositions(userId),
     ]);
 
-    // Las posiciones sin cotización no suman: no se las puede valuar. `hasUnvaluedPositions`
-    // avisa que el total está incompleto, que si no el cliente no tendría cómo saberlo.
+    // Las posiciones sin cotización no se pueden valuar, así que no suman al total.
     const positionsValue = positions.reduce(
       (sum, p) => (p.marketValue === null ? sum : sum.plus(p.marketValue)),
       new Decimal(0),

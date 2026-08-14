@@ -9,10 +9,8 @@ export interface Paginated<T> {
 }
 
 /**
- * Factory de clase (no una clase genérica real: los decorators de Swagger no
- * soportan tipos genéricos) para documentar respuestas paginadas reutilizando el
- * mismo envelope `{ data, total, page, limit }` en distintos endpoints — patrón
- * recomendado por la propia doc de @nestjs/swagger para "Generics and Interfaces".
+ * Genera la clase que documenta una respuesta paginada de `model`. Es una factory y no una
+ * clase genérica porque los decorators de Swagger no soportan tipos genéricos.
  */
 export function PaginatedResponseDto<TModel extends object>(
   model: Type<TModel>,

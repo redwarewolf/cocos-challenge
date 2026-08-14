@@ -15,9 +15,8 @@ export class InstrumentsService {
   ) {}
 
   /**
-   * Se excluye el instrumento de tipo MONEDA (ARS) porque no es un activo que un usuario
-   * busque para operar, y el ranking prioriza match exacto de ticker sobre prefijo y sobre
-   * coincidencia parcial en el nombre: buscar "ggal" tiene que devolver GGAL primero.
+   * Busca instrumentos por ticker o nombre, excluyendo la MONEDA. Ordena por ticker exacto,
+   * después por prefijo y después el resto, para que "ggal" devuelva GGAL primero.
    */
   async search(
     query: string,
@@ -29,10 +28,8 @@ export class InstrumentsService {
       return { data: [], total: 0, page, limit };
     }
 
-    // `%` y `_` son wildcards de LIKE, así que hay que escaparlos antes de interpolarlos
-    // en el patrón. No es un tema de inyección (la query va parametrizada), es de
-    // resultados: sin esto, buscar `GG_L` matchea `GGAL` y buscar `%` devuelve el listado
-    // entero. El `\` va primero en la clase de caracteres para que se escape a sí mismo.
+    // `%` y `_` son wildcards de LIKE: sin escapar, buscar `GG_L` devolvería `GGAL` y `%`
+    // el listado entero. La barra va primero en la clase para escaparse a sí misma.
     const escaped = term.replace(/[\\%_]/g, '\\$&');
 
     const [data, total] = await this.instrumentRepository
@@ -44,8 +41,6 @@ export class InstrumentsService {
           like: `%${escaped}%`,
         },
       )
-      // Los patrones del ranking también son ILIKE: sin escapar, un `GG_L` se ordenaría
-      // como si fuera match exacto de `GGAL`.
       .setParameter('exact', escaped)
       .setParameter('prefix', `${escaped}%`)
       .orderBy(
