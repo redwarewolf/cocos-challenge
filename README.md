@@ -192,15 +192,35 @@ hardcodea su `id`.
 órdenes `FILLED`:
 
 - `quantity = Σ size(BUY) − Σ size(SELL)` (se omite el instrumento si el neto es `<= 0`).
-- `totalCost` (costo neto) `= Σ (size·price)(BUY) − Σ (size·price)(SELL)`: es una aproximación
-  simple al costo invertido neto, no un FIFO/promedio ponderado estricto. Para el alcance del
-  challenge (sin simular mercado, sin fraccionamiento de acciones) se consideró suficiente y es
-  fácil de auditar a partir de las propias órdenes.
+- `totalCost = Σ (size·price)(BUY) / Σ size(BUY) × quantity`: costo promedio ponderado, o sea el
+  precio promedio de compra por lo que queda en cartera. Cada venta se considera consumida al costo
+  promedio, que es lo que hace la contabilidad real — ver más abajo por qué no se usa el flujo de
+  caja neto.
 - `marketValue = quantity × lastPrice` (el `close` más reciente de `marketdata`).
 - `performancePct = (marketValue − totalCost) / totalCost × 100` (0 si `totalCost <= 0`).
 - `dailyReturnPct = (close − previousClose) / previousClose × 100`, o `null` si falta alguno de los
   dos precios.
 - `totalAccountValue = availableCash + Σ marketValue`.
+
+**Por qué costo promedio ponderado y no flujo de caja neto**: la fórmula intuitiva para el costo es
+`Σ (size·price)(BUY) − Σ (size·price)(SELL)`, pero eso no es el costo de la posición: es la plata
+neta puesta en el instrumento. Coinciden solo mientras no haya ventas, y después se separan en la
+dirección equivocada. Con `BUY 10 @ 100` y `SELL 5 @ 300` el costo daría `-500` —un costo negativo
+no existe— y, peor, el `performancePct` caería en el guard `totalCost > 0` y se reportaría `0%`
+justo en el caso donde más se ganó.
+
+El caso que no se ve es el que importa: con `BUY 10 @ 100`, `SELL 5 @ 150` y cotización actual 160,
+esa fórmula da un costo de `250` y un rendimiento de `(800 − 250) / 250 = 220%`. Un número
+positivo, plausible y sin ningún guard que lo delate, cuando el rendimiento real de la posición es
+60% (de 100 a 160). Con costo promedio ponderado: `1000 / 10 = 100` de promedio × 5 que quedan =
+`500`, y `(800 − 500) / 500 = 60%`.
+
+El límite conocido: difiere del promedio ponderado *running* (que recalcula el promedio después de
+cada compra) solo si se intercalan compras y ventas. Con `BUY 10 @ 100`, `SELL 5`, `BUY 10 @ 200`,
+el running da 2500 sobre 15 unidades y esta fórmula 2250. Si todas las compras preceden a las
+ventas —el caso normal— son idénticos. La versión exacta (running o FIFO) necesita window functions
+con estado ordenado por `datetime`; es lo que correspondería en producción y se dejó afuera a
+propósito.
 
 **Rendimiento total vs. retorno diario**: el enunciado pide dos cosas distintas en dos lugares
 distintos, y la API devuelve las dos. El "rendimiento total (%)" del listado de activos se calcula
@@ -287,8 +307,10 @@ las respuestas — ej. `performancePct: -1.1548676206522556e-14` en vez de `0` p
 ganancia ni pérdida (`100 * 19.9` da `1989.9999999999998` en JS nativo, no `1990`). Se migró a
 `decimal.js` puntualmente donde se encadenan operaciones en JS:
 
-- `ValuationService.getPositions`: `marketValue`, `performancePct` (y `totalCost` al pasar por
-  `Decimal`, aunque ya llegaba exacto desde Postgres).
+- `ValuationService.getPositions`: `marketValue`, `performancePct`, `dailyReturnPct` y `totalCost`.
+  Este último pasó a necesitar `Decimal` de verdad al migrar a costo promedio ponderado: el promedio
+  es una división que puede no ser exacta (`1000 / 3`), así que ya no llega resuelto desde Postgres
+  como cuando era una simple suma de `numeric`.
 - `ValuationService.getPortfolio`: suma de `availableCash` + el `marketValue` de cada posición.
 - `OrdersService`: el `price` de una orden `LIMIT` se redondea a 2 decimales una única vez, en
   `resolvePrice` — antes se usaba el valor crudo del cliente (`@IsNumber()` no restringe decimales)
