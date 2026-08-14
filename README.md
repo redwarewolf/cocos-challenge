@@ -74,7 +74,8 @@ Los tres primeros son los que pide el challenge; el resto son bonus.
       "dailyReturnPct": 2.87
     }
   ],
-  "totalAccountValue": 904784
+  "totalAccountValue": 904784,
+  "hasUnvaluedPositions": false
 }
 ```
 
@@ -85,9 +86,15 @@ Cada posición trae dos rendimientos, que responden preguntas distintas:
 | `performancePct` | `(marketValue − totalCost) / totalCost × 100` | ¿cómo me fue desde que compré? |
 | `dailyReturnPct` | `(lastPrice − previousClose) / previousClose × 100` | ¿cómo me fue hoy? |
 
-`dailyReturnPct` es `null` —no `0`— si al instrumento le falta el cierre actual o el anterior.
 `totalCost` usa costo promedio ponderado; el detalle y el porqué de ambas métricas, en
 [DECISIONS.md](DECISIONS.md#4-cómo-se-calcula-el-portfolio).
+
+**Cuando falta el dato de mercado**, la respuesta lo dice en vez de inventar un número:
+`dailyReturnPct` es `null` si al instrumento le falta el cierre actual o el anterior, y
+`lastPrice`, `marketValue` y `performancePct` son `null` si no tiene cotización — un `marketValue`
+de `0` daría `-100%` de rendimiento sobre una posición que puede valer cualquier cosa. Esas
+posiciones se listan igual (con su `quantity` y su `totalCost`, que no dependen del mercado) pero no
+suman a `totalAccountValue`, y `hasUnvaluedPositions` avisa que el total quedó incompleto.
 
 ### `GET /v1/instruments/search?q=<texto>&page=&limit=`
 

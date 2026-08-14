@@ -219,6 +219,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         availableCash: 100000,
         positions: [],
         totalAccountValue: 100000,
+        hasUnvaluedPositions: false,
       });
     });
 
@@ -231,6 +232,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
         availableCash: 0,
         positions: [],
         totalAccountValue: 0,
+        hasUnvaluedPositions: false,
       });
     });
 
@@ -274,6 +276,59 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(position.totalCost).toBe(4000);
       // 5 × 900 (último close del seed) = 4500 ⇒ (4500 - 4000) / 4000 = 12.5%
       expect(position.performancePct).toBe(12.5);
+    });
+  });
+
+  describe('Posición sobre un instrumento sin marketdata', () => {
+    let userId: number;
+
+    beforeAll(async () => {
+      userId = await crearUsuario();
+      // BMA (id 3) existe en el seed pero no tiene marketdata. Se inserta directo porque
+      // por la API no se llega: una MARKET sobre ese instrumento da 400 (no hay precio)
+      // y una LIMIT nunca pasa de NEW.
+      await dataSource.query(
+        `INSERT INTO orders (instrumentId, userId, size, price, side, status, "type", datetime)
+         VALUES (3, $1, 5, 1000, 'BUY', 'FILLED', 'MARKET', '2024-01-04 10:00:00')`,
+        [userId],
+      );
+      await fondear(userId, 10_000);
+    });
+
+    it('la posición se lista sin valuar en vez de reportar 0 y -100 %', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+
+      expect(res.status).toBe(200);
+      const position = res.body.positions.find(
+        (p: { instrumentId: number }) => p.instrumentId === 3,
+      ) as {
+        quantity: number;
+        totalCost: number;
+        marketValue: number | null;
+        performancePct: number | null;
+        lastPrice: number | null;
+      };
+
+      expect(position.quantity).toBe(5);
+      expect(position.lastPrice).toBeNull();
+      expect(position.marketValue).toBeNull();
+      expect(position.performancePct).toBeNull();
+      // El costo no depende del mercado: sale de las órdenes.
+      expect(position.totalCost).toBe(5000);
+    });
+
+    it('totalAccountValue no la suma, y avisa que quedó incompleto', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/v1/portfolio/${userId}`,
+      );
+
+      // 10.000 de CASH_IN menos los 5.000 que costó la compra.
+      expect(res.body.availableCash).toBe(5000);
+      // Igual al cash: la única posición no se puede valuar, así que no suma nada.
+      expect(res.body.totalAccountValue).toBe(5000);
+      expect(res.body.hasUnvaluedPositions).toBe(true);
     });
   });
 

@@ -7,9 +7,11 @@ export interface PortfolioPosition {
   lastPrice: number | null;
   /** Cierre del día anterior, del que sale `dailyReturnPct`. */
   previousClose: number | null;
-  marketValue: number;
+  /** `null` si el instrumento no tiene cotización: el valor es desconocido, no cero. */
+  marketValue: number | null;
   totalCost: number;
-  performancePct: number;
+  /** `null` cuando no hay `marketValue` contra el cual medir el costo. */
+  performancePct: number | null;
   /** `null` cuando falta el cierre actual o el anterior para el instrumento. */
   dailyReturnPct: number | null;
 }
@@ -19,4 +21,6 @@ export interface Portfolio {
   availableCash: number;
   positions: PortfolioPosition[];
   totalAccountValue: number;
+  /** `true` si alguna posición quedó sin valuar y no está incluida en el total. */
+  hasUnvaluedPositions: boolean;
 }

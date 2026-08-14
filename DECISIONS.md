@@ -101,10 +101,24 @@ limpio y solo se parsea una vez, sin encadenar nada — no hay error que introdu
 | --- | --- |
 | `quantity` | `Σ size(BUY) − Σ size(SELL)`, se omite el instrumento si el neto es `<= 0` |
 | `totalCost` | `Σ (size·price)(BUY) / Σ size(BUY) × quantity` |
-| `marketValue` | `quantity × lastPrice` |
-| `performancePct` | `(marketValue − totalCost) / totalCost × 100` |
+| `marketValue` | `quantity × lastPrice`, o `null` |
+| `performancePct` | `(marketValue − totalCost) / totalCost × 100`, o `null` |
 | `dailyReturnPct` | `(lastPrice − previousClose) / previousClose × 100`, o `null` |
-| `totalAccountValue` | `availableCash + Σ marketValue` |
+| `totalAccountValue` | `availableCash + Σ marketValue`, salteando las posiciones sin valuar |
+
+### Sin cotización el valor es desconocido, no cero
+
+Un instrumento puede no tener `marketdata` — en la base provista hay dos, `IRCP` y `PGR`. Valuar esa
+posición en `0` es la respuesta fácil y es incorrecta por partida doble: hunde el `totalAccountValue`
+por una tenencia que probablemente valga algo, y produce un `performancePct` de exactamente `-100%`,
+un número que se lee como una pérdida total real y no como lo que es, la ausencia de un dato.
+
+Por eso `lastPrice`, `marketValue` y `performancePct` son `null` juntos, y la posición no suma al
+total. Es la misma distinción que ya hacía `dailyReturnPct`, aplicada a las otras dos métricas.
+
+`quantity` y `totalCost` sí se informan: salen de las órdenes, no del mercado, así que se conocen
+igual. Y `hasUnvaluedPositions` marca que el total quedó incompleto — sin ese flag, un cliente que
+solo lee `totalAccountValue` no tendría cómo distinguir una cuenta chica de una mal valuada.
 
 ### Costo promedio ponderado, y no flujo de caja neto
 
