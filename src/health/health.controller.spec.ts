@@ -42,6 +42,8 @@ describe('HealthController', () => {
     const response = await controller.check();
 
     expect(response).toBe(result);
-    expect(db.pingCheck).toHaveBeenCalledWith('database');
+    // Con el timeout explícito: el default de Terminus (1000 ms) no alcanza para la primera
+    // conexión contra un Postgres serverless.
+    expect(db.pingCheck).toHaveBeenCalledWith('database', { timeout: 3000 });
   });
 });
