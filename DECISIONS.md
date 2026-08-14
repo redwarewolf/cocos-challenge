@@ -354,6 +354,14 @@ pisan `DATABASE_URL`/`DB_SSL` en runtime antes de bootear la app. Por la misma r
 no exporta un objeto de opciones ya resuelto. No se usa `ConfigService` porque el CLI de migraciones
 importa este mismo archivo y corre fuera del contenedor de DI de Nest.
 
+**Timeout del healthcheck**: 3 s, explícito. El default de Terminus es 1 s, que alcanza para el
+round-trip normal contra Neon (~180 ms) pero no para el primero, donde se paga el cold start del
+Postgres serverless más el handshake TLS. Con el default, `GET /health` devuelve `503` en los
+primeros requests después de arrancar mientras el resto de la API responde normalmente — y un
+readiness probe saca el contenedor de rotación justo cuando se está desplegando. Subir el umbral no
+enmascara nada: si la base contesta en 1,2 s la app puede servir tráfico, y decir que está caída es
+incorrecto.
+
 **Apagado ordenado**: `enableShutdownHooks()`. Ante un `SIGTERM` —un deploy, un `docker stop`— Nest
 deja de aceptar conexiones, espera a que terminen los requests en vuelo y recién ahí cierra el pool.
 Sin eso, una orden en curso muere sin respuesta y el cliente no sabe si se ejecutó; con el header
