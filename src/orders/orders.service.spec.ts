@@ -377,7 +377,7 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
         status: OrderStatus.NEW,
       });
 
-      const order = await service.cancel(5);
+      const order = await service.cancel(5, 1);
 
       expect(order.status).toBe(OrderStatus.CANCELLED);
     });
@@ -388,13 +388,24 @@ describe('OrdersService (orquestación: valida input, delega en los colaboradore
         status: OrderStatus.FILLED,
       });
 
-      await expect(service.cancel(5)).rejects.toThrow(BadRequestException);
+      await expect(service.cancel(5, 1)).rejects.toThrow(BadRequestException);
     });
 
     it('lanza 404 al cancelar una orden inexistente', async () => {
       orderRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.cancel(999)).rejects.toThrow(NotFoundException);
+      await expect(service.cancel(999, 1)).rejects.toThrow(NotFoundException);
+    });
+
+    it('busca la orden filtrando por userId, no solo por id', async () => {
+      // Si el filtro no incluyera el userId, cualquiera podría cancelar la orden de otro
+      // probando ids. La orden ajena se resuelve como "no encontrada" a nivel query.
+      orderRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.cancel(5, 2)).rejects.toThrow(NotFoundException);
+      expect(orderRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 5, userId: 2 },
+      });
     });
   });
 });

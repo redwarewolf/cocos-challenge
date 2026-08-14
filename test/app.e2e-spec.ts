@@ -391,16 +391,7 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       });
     });
 
-    it('cancela la orden LIMIT que quedó NEW', async () => {
-      const res = await request(app.getHttpServer()).patch(
-        `/v1/orders/${limitOrderId}/cancel`,
-      );
-
-      expect(res.status).toBe(200);
-      expect(res.body).toMatchObject({ id: limitOrderId, status: 'CANCELLED' });
-    });
-
-    it('no permite cancelar una orden que no está NEW', async () => {
+    it('400 al cancelar sin userId', async () => {
       const res = await request(app.getHttpServer()).patch(
         `/v1/orders/${limitOrderId}/cancel`,
       );
@@ -408,10 +399,46 @@ describe('API e2e (Postgres real vía Testcontainers)', () => {
       expect(res.status).toBe(400);
     });
 
+    it('404 al cancelar una orden de otro usuario (no 403: no se confirma que exista)', async () => {
+      // La orden es del usuario 1 y sigue en NEW: si el filtro no incluyera el userId,
+      // esto devolvería 200 y la cancelaría.
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/orders/${limitOrderId}/cancel`)
+        .query({ userId: 2 });
+
+      expect(res.status).toBe(404);
+
+      // y la orden sigue viva para su dueño
+      const history = await request(app.getHttpServer())
+        .get('/v1/orders')
+        .query({ userId: 1, limit: 100 });
+      const order = history.body.data.find(
+        (o: { id: number }) => o.id === limitOrderId,
+      ) as { status: string };
+      expect(order.status).toBe('NEW');
+    });
+
+    it('cancela la orden LIMIT que quedó NEW', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/orders/${limitOrderId}/cancel`)
+        .query({ userId: 1 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id: limitOrderId, status: 'CANCELLED' });
+    });
+
+    it('no permite cancelar una orden que no está NEW', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/orders/${limitOrderId}/cancel`)
+        .query({ userId: 1 });
+
+      expect(res.status).toBe(400);
+    });
+
     it('404 al cancelar una orden inexistente', async () => {
-      const res = await request(app.getHttpServer()).patch(
-        '/v1/orders/999999/cancel',
-      );
+      const res = await request(app.getHttpServer())
+        .patch('/v1/orders/999999/cancel')
+        .query({ userId: 1 });
 
       expect(res.status).toBe(404);
     });

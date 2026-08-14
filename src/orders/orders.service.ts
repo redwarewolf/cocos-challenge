@@ -167,9 +167,14 @@ export class OrdersService {
     return { data, total, page, limit };
   }
 
-  async cancel(orderId: number): Promise<Order> {
+  /**
+   * La orden se busca por `id` **y** `userId`: una orden ajena responde 404, igual que una
+   * inexistente. No es 403 a propósito — sin autenticación, un 403 confirmaría que esa orden
+   * existe y es de otro, que es justo lo que no queremos que se pueda averiguar probando ids.
+   */
+  async cancel(orderId: number, userId: number): Promise<Order> {
     const order = await this.orderRepository.findOne({
-      where: { id: orderId },
+      where: { id: orderId, userId },
     });
     if (!order) {
       throw new NotFoundException(`Order ${orderId} not found`);

@@ -102,13 +102,13 @@ describe('OrdersController', () => {
     expect(result).toBe(page);
   });
 
-  it('cancel() delega en OrdersService.cancel() con el id parseado', async () => {
+  it('cancel() delega en OrdersService.cancel() con el id parseado y el userId', async () => {
     const cancelled = { id: 5, status: 'CANCELLED' };
     ordersService.cancel.mockResolvedValue(cancelled);
 
-    const result = await controller.cancel(5);
+    const result = await controller.cancel(5, { userId: 1 });
 
-    expect(ordersService.cancel).toHaveBeenCalledWith(5);
+    expect(ordersService.cancel).toHaveBeenCalledWith(5, 1);
     expect(result).toBe(cancelled);
   });
 });

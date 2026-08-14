@@ -143,9 +143,15 @@ Historial de órdenes/movimientos de un usuario, más recientes primero. `userId
 `status` opcional (`NEW|FILLED|REJECTED|CANCELLED`), mismo paginado (`page`/`limit`) y mismo
 envelope de respuesta que `GET /v1/instruments/search`.
 
-### `PATCH /v1/orders/:id/cancel` (bonus, no pedido explícitamente por el challenge)
+### `PATCH /v1/orders/:id/cancel?userId=` (bonus, no pedido explícitamente por el challenge)
 
-Cancela una orden en estado `NEW`. Cualquier otro estado responde `400`.
+Cancela una orden en estado `NEW` **del usuario indicado**. Cualquier otro estado responde `400`.
+
+`userId` es obligatorio: sin él, cancelar una orden ajena solo requeriría adivinar un id, y sería el
+único endpoint de la API que opera sobre datos de un usuario sin saber de qué usuario se trata. Una
+orden que existe pero es de otro responde `404`, no `403`: sin autenticación, un `403` confirmaría
+que esa orden existe y es de otra cuenta, que es justo lo que no conviene que se pueda averiguar
+probando ids.
 
 ### Header `Idempotency-Key` (bonus, no pedido explícitamente por el challenge)
 

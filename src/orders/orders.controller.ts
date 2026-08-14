@@ -20,6 +20,7 @@ import {
   Paginated,
   PaginatedResponseDto,
 } from '../common/dto/paginated-response.dto';
+import { CancelOrderQueryDto } from './dto/cancel-order-query.dto';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
@@ -103,16 +104,25 @@ export class OrdersController {
   }
 
   @Patch(':id/cancel')
-  @ApiOperation({ summary: 'Cancela una orden en estado NEW' })
+  @ApiOperation({ summary: 'Cancela una orden en estado NEW del usuario' })
   @ApiParam({ name: 'id', example: 1 })
   @ApiResponse({
     status: 200,
     description: 'Orden cancelada',
     type: OrderResponseDto,
   })
-  @ApiResponse({ status: 400, description: 'La orden no está en estado NEW' })
-  @ApiResponse({ status: 404, description: 'Orden inexistente' })
-  cancel(@Param('id', ParseIntPipe) id: number): Promise<OrderResponseDto> {
-    return this.ordersService.cancel(id);
+  @ApiResponse({
+    status: 400,
+    description: 'Falta userId, o la orden no está en estado NEW',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'La orden no existe o no es de ese usuario',
+  })
+  cancel(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: CancelOrderQueryDto,
+  ): Promise<OrderResponseDto> {
+    return this.ordersService.cancel(id, query.userId);
   }
 }

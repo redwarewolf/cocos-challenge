@@ -674,12 +674,12 @@
       "name": "4. Cancelar orden (bonus)",
       "item": [
         {
-          "name": "PATCH /orders/{{limitOrderId}}/cancel",
+          "name": "PATCH /orders/{{limitOrderId}}/cancel?userId=2 -> 404 (orden de otro usuario)",
           "request": {
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/v1/orders/{{limitOrderId}}/cancel",
+              "raw": "{{baseUrl}}/v1/orders/{{limitOrderId}}/cancel?userId=2",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -688,6 +688,50 @@
                 "orders",
                 "{{limitOrderId}}",
                 "cancel"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "2"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 y no 403: no se confirma que la orden exista', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /orders/{{limitOrderId}}/cancel?userId=1",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/orders/{{limitOrderId}}/cancel?userId=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "{{limitOrderId}}",
+                "cancel"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "1"
+                }
               ]
             }
           },
@@ -709,12 +753,12 @@
           ]
         },
         {
-          "name": "PATCH /orders/{{limitOrderId}}/cancel (ya cancelada) -> 400",
+          "name": "PATCH /orders/{{limitOrderId}}/cancel?userId=1 (ya cancelada) -> 400",
           "request": {
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/v1/orders/{{limitOrderId}}/cancel",
+              "raw": "{{baseUrl}}/v1/orders/{{limitOrderId}}/cancel?userId=1",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -723,6 +767,12 @@
                 "orders",
                 "{{limitOrderId}}",
                 "cancel"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "1"
+                }
               ]
             }
           },
@@ -739,12 +789,12 @@
           ]
         },
         {
-          "name": "PATCH /orders/999999999/cancel -> 404",
+          "name": "PATCH /orders/999999999/cancel?userId=1 -> 404",
           "request": {
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/v1/orders/999999999/cancel",
+              "raw": "{{baseUrl}}/v1/orders/999999999/cancel?userId=1",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -753,6 +803,12 @@
                 "orders",
                 "999999999",
                 "cancel"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "1"
+                }
               ]
             }
           },
