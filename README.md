@@ -196,12 +196,12 @@ npm run test:e2e   # e2e contra un Postgres real descartable (requiere Docker)
 npm run test:postman  # colección Postman con Newman (requiere el server corriendo)
 ```
 
-**Unit** (145 tests): un spec por servicio y por controller, con repositorios y servicios mockeados
+**Unit**: un spec por servicio y por controller, con repositorios y servicios mockeados
 en memoria. Los tests de controller verifican la delegación; la lógica de negocio se prueba en los
 services. La cobertura se mide solo sobre services y controllers —los archivos declarativos
 (módulos, entities, DTOs, migraciones) están excluidos a propósito— y está en 100% de statements.
 
-**E2E** (70 tests): levantan un Postgres real y descartable con
+**E2E**: levantan un Postgres real y descartable con
 [Testcontainers](https://node.testcontainers.org/), le corren **las migraciones reales del proyecto**
 y un seed de test propio, y ejercitan la app de punta a punta (HTTP → controller → service → DB),
 incluidos los tres escenarios de concurrencia. Nunca tocan la base de Cocos: el container se crea y

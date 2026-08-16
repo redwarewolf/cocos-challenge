@@ -439,3 +439,20 @@ guardar un hash del request junto con la key y responder `409 Conflict` ante un 
 
 **El costo promedio no es *running*** (ver sección 4): difiere del exacto solo con compras y ventas
 intercaladas.
+
+**Una orden `LIMIT` en `NEW` no tiene forma de llegar a `FILLED`.** No hay matching contra el
+mercado ni expiración, y es deliberado: el enunciado aclara que no hay que simular el mercado. Lo
+que sí conviene decir es la consecuencia, porque no se agota en que la orden se quede quieta. Su
+notional queda contado en `reservedCash` indefinidamente, así que el `buyingPower` del usuario baja
+de forma permanente y no hay manera de recuperarlo salvo cancelando la orden a mano. Un motor de
+ejecución, aunque fuera uno que solo compare el `price` de la orden contra el último `close`,
+cerraría el ciclo.
+
+**Los movimientos de cash solo aceptan pesos enteros.** `orders.size` es `INT` y el monto de un
+`CASH_IN`/`CASH_OUT` se persiste ahí, así que no se puede depositar ni retirar $1000,50. Es
+incoherente con el resto del modelo: el disponible sale de `size × price` con `price` en
+`NUMERIC(10,2)`, de modo que una venta a un precio con centavos ya deja un saldo con centavos —
+y ese saldo después no se puede retirar entero, queda plata atrapada en la cuenta. Resolverlo pide
+migrar `orders.size` a `NUMERIC` sobre la base provista, más un `CHECK` que conserve la garantía de
+que las acciones no se fraccionan. Es más de lo que el challenge pide, y para un endpoint que además
+es bonus.
